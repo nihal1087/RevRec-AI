@@ -17,7 +17,8 @@ import "dotenv/config"; // Must be absolute first — loads .env before any env 
 import express, { Request, Response, NextFunction } from "express";
 import { webhookRouter } from "./routes/webhook.routes";
 import { startPaymentEventWorker } from "./workers/paymentEvent.worker";
-import { closeAllRedisConnections } from "./config/redis";
+import { closeAllRedisConnections, getRedisClient } from "./config/redis";
+import { logger } from "./config/logger";
 import { prisma } from "@revrec/db";
 
 // ── Environment Validation ────────────────────────────────────────────────────
@@ -31,8 +32,8 @@ const requiredEnvVars = [
 
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {
-    console.error(`[FATAL] Missing required environment variable: ${envVar}`);
-    console.error("[FATAL] Copy .env.example to apps/api/.env and fill in all values.");
+    logger.error(`[FATAL] Missing required environment variable: ${envVar}`);
+    logger.error("[FATAL] Copy .env.example to apps/api/.env and fill in all values.");
     process.exit(1);
   }
 }
@@ -58,18 +59,26 @@ app.use(express.json({ limit: "10kb" }));
 
 // ── STEP 3: Health Check ──────────────────────────────────────────────────────
 app.get("/health", async (_req: Request, res: Response) => {
-  // Also check DB and Redis connectivity for a proper health status
-  const checks = {
+  const checks: Record<string, string> = {
     server: "ok",
     database: "unknown",
     redis: "unknown",
   };
 
+  // Check PostgreSQL connectivity
   try {
     await prisma.$queryRaw`SELECT 1`;
-    checks.database = "ok";
+    checks["database"] = "ok";
   } catch {
-    checks.database = "error";
+    checks["database"] = "error";
+  }
+
+  // Check Redis connectivity with PING command
+  try {
+    const pong = await getRedisClient().ping();
+    checks["redis"] = pong === "PONG" ? "ok" : "error";
+  } catch {
+    checks["redis"] = "error";
   }
 
   const allHealthy = Object.values(checks).every((v) => v === "ok");
@@ -97,7 +106,7 @@ app.use((_req: Request, res: Response) => {
 // 4-argument signature is required for Express to recognize as error handler.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error("[ERROR]", {
+  logger.error("[API Error]", {
     message: err.message,
     stack: process.env["NODE_ENV"] === "development" ? err.stack : undefined,
   });
@@ -110,43 +119,43 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 // ── Start Server ──────────────────────────────────────────────────────────────
 const PORT = parseInt(process.env["PORT"] ?? "3001", 10);
 const server = app.listen(PORT, () => {
-  console.log(`[RevRec API] ✅ Server running on http://localhost:${PORT}`);
-  console.log(`[RevRec API] 🌍 Environment: ${process.env["NODE_ENV"]}`);
-  console.log(`[RevRec API] 🔍 Health: http://localhost:${PORT}/health`);
-  console.log(`[RevRec API] 🔗 Webhook: POST http://localhost:${PORT}/api/webhooks`);
+  logger.info(`[RevRec API] Server running on http://localhost:${PORT}`);
+  logger.info(`[RevRec API] Environment: ${process.env["NODE_ENV"] ?? "development"}`);
+  logger.info(`[RevRec API] Health: http://localhost:${PORT}/health`);
+  logger.info(`[RevRec API] Webhook: POST http://localhost:${PORT}/api/webhooks`);
 
   // Start BullMQ worker in the same process for development convenience.
   // In production, this would be a separate worker process/container:
   //   SEPARATE: `node dist/workers/paymentEvent.worker.js`
   // For this project, co-location is fine and demonstrates the system holistically.
   startPaymentEventWorker();
-  console.log(`[RevRec API] ⚙️  BullMQ payment event worker started`);
+  logger.info(`[RevRec API] BullMQ payment event worker started`);
 });
 
 // ── Graceful Shutdown ─────────────────────────────────────────────────────────
 // Handle SIGTERM (Docker stop, Kubernetes pod termination) and SIGINT (Ctrl+C).
 // This allows in-flight requests and jobs to complete before the process exits.
 async function gracefulShutdown(signal: string): Promise<void> {
-  console.log(`\n[RevRec API] Received ${signal} — shutting down gracefully...`);
+  logger.info(`[RevRec API] Received ${signal} — shutting down gracefully...`);
 
   server.close(async () => {
-    console.log("[RevRec API] HTTP server closed — no new requests accepted");
+    logger.info("[RevRec API] HTTP server closed — no new requests accepted");
 
     // Close database connections
     await prisma.$disconnect();
-    console.log("[RevRec API] Prisma disconnected");
+    logger.info("[RevRec API] Prisma disconnected");
 
     // Close Redis connections
     await closeAllRedisConnections();
-    console.log("[RevRec API] Redis connections closed");
+    logger.info("[RevRec API] Redis connections closed");
 
-    console.log("[RevRec API] ✅ Graceful shutdown complete");
+    logger.info("[RevRec API] Graceful shutdown complete");
     process.exit(0);
   });
 
   // Force exit after 15 seconds if graceful shutdown stalls
   setTimeout(() => {
-    console.error("[RevRec API] Graceful shutdown timed out — forcing exit");
+    logger.error("[RevRec API] Graceful shutdown timed out — forcing exit");
     process.exit(1);
   }, 15_000);
 }

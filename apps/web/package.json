@@ -2,7 +2,8 @@
   "name": "@revrec/web",
   "version": "1.0.0",
   "private": true,
-  "description": "RevRec Merchant Command Center — React Dashboard",
+  "type": "module",
+  "description": "RevRec Web — Merchant Command Center Dashboard",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

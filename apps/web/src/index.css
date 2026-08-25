@@ -1,0 +1,51 @@
+/* apps/web/src/index.css — Global Styles */
+
+/* Import Tailwind's base, components, and utilities layers */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── CSS Variables for consistent theming ─────────────────────── */
+@layer base {
+  :root {
+    --color-recovered: #22c55e;
+    --color-at-risk:   #ef4444;
+    --color-pending:   #f59e0b;
+    --color-halted:    #6b7280;
+  }
+
+  body {
+    @apply bg-gray-950 text-gray-100 font-sans antialiased;
+  }
+
+  /* Scrollbar styling for the dashboard */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-900;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-600 rounded-full;
+  }
+}
+
+/* ── Utility classes used across the dashboard ─────────────────── */
+@layer utilities {
+  .stat-card {
+    @apply bg-gray-900 border border-gray-800 rounded-xl p-6;
+  }
+
+  .badge-recovered {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900 text-green-300;
+  }
+
+  .badge-at-risk {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900 text-red-300;
+  }
+
+  .badge-pending {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-900 text-amber-300;
+  }
+}

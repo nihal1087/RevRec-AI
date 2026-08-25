@@ -6,11 +6,15 @@
     "moduleResolution": "Bundler",
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "rootDir": "./src",
     "outDir": "./dist",
+    "baseUrl": ".",
     "paths": {
       "@revrec/types": ["../../packages/types/src"]
-    }
+    },
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true
   },
-  "include": ["src/**/*", "vite.config.ts"]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }
