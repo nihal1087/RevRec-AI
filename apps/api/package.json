@@ -1,0 +1,33 @@
+{
+  "name": "@revrec/api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RevRec API — Express.js backend for the Revenue Recovery Engine",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "jest --passWithNoTests"
+  },
+  "dependencies": {
+    "@revrec/types": "*",
+    "express": "^4.19.2",
+    "dotenv": "^16.4.5",
+    "zod": "^3.23.8",
+    "winston": "^3.13.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.5",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.12",
+    "ts-jest": "^29.1.5",
+    "supertest": "^7.0.0",
+    "@types/supertest": "^6.0.2"
+  }
+}
