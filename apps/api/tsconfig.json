@@ -1,12 +1,12 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "./src",
     "outDir": "./dist",
     "baseUrl": ".",
     "paths": {
-      "@revrec/types": ["../../packages/types/src"]
+      "@revrec/types": ["../../packages/types/src"],
+      "@revrec/db": ["../../packages/db/src"]
     }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "../../packages/types/src/**/*", "../../packages/db/src/**/*"]
 }

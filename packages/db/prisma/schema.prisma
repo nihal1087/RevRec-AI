@@ -1,0 +1,407 @@
+// ══════════════════════════════════════════════════════════════════
+// RevRec — Prisma Database Schema
+// This is the single source of truth for ALL database structure.
+// Never modify the database directly — always go through migrations.
+// ══════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ENUMS — Mirror of packages/types/src/enums.ts
+// Values MUST stay in sync. The TypeScript enums use string values
+// that match these exactly, enabling safe casting between layers.
+// ─────────────────────────────────────────────────────────────────
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum DeclineCategory {
+  SOFT
+  HARD
+  NETWORK
+  INTENT_DROP
+  MANDATE_FAILURE
+}
+
+enum RecoveryStage {
+  PENDING
+  ANALYZING
+  RETRYING
+  OUTREACH_SENT
+  PROMISE_RECEIVED
+  RECOVERED
+  ESCALATED
+  HALTED
+  ABANDONED
+}
+
+enum DunningChannel {
+  WHATSAPP
+  SMS
+  EMAIL
+  HINGLISH_VOICE
+  HUMAN_AGENT
+}
+
+enum RecoveryMethod {
+  AUTO_RETRY
+  CUSTOMER_LINK_CLICK
+  PROMISE_TO_PAY_FULFILLED
+  PARTIAL_SETTLEMENT
+  MANUAL_HUMAN
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  WRITTEN_OFF
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  PAUSED
+  EXPIRED
+}
+
+enum MandateType {
+  ENACH
+  UPI_AUTOPAY
+  CARD
+}
+
+enum PromiseStatus {
+  ACTIVE
+  FULFILLED
+  BREACHED
+  CANCELLED
+}
+
+enum AuditEventType {
+  PAYMENT_RECEIVED
+  PAYMENT_FAILED
+  PAYMENT_RETRY_SCHEDULED
+  PAYMENT_RETRY_SUCCEEDED
+  PAYMENT_RETRY_FAILED
+  WORKFLOW_CREATED
+  WORKFLOW_STAGE_CHANGED
+  WORKFLOW_RECOVERED
+  WORKFLOW_ABANDONED
+  WORKFLOW_HALTED
+  WORKFLOW_ESCALATED
+  RCA_CLASSIFIED
+  AGENT_DECISION_MADE
+  AGENT_TOOL_EXECUTED
+  AGENT_REJECTED_BY_POLICY
+  OUTREACH_SENT
+  OUTREACH_DELIVERED
+  CUSTOMER_RESPONDED
+  PROMISE_TO_PAY_CREATED
+  PROMISE_TO_PAY_FULFILLED
+  PROMISE_TO_PAY_BREACHED
+  COMPLIANCE_CHECK_PASSED
+  COMPLIANCE_CHECK_FAILED
+  MAX_ATTEMPTS_REACHED
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CUSTOMER
+// ─────────────────────────────────────────────────────────────────
+
+model Customer {
+  id               String         @id @default(uuid())
+  externalId       String         @unique // e.g., Razorpay cust_xxxxx
+  name             String
+  email            String
+  phone            String         // E.164 format: +919876543210
+  // riskScore: 0-100 composite score from payment history analysis.
+  // Higher = higher default probability. Used by agent to calibrate effort.
+  riskScore        Int            @default(50)
+  ltvInPaise       Int            @default(0) // Lifetime value — guides recovery investment
+  preferredChannel DunningChannel @default(WHATSAPP)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  payments          Payment[]
+  subscriptions     Subscription[]
+  invoices          Invoice[]
+  recoveryWorkflows RecoveryWorkflow[]
+  dunningContacts   DunningContact[]
+  promiseToPays     PromiseToPay[]
+
+  @@index([externalId])
+  @@index([email])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// PAYMENT
+// ─────────────────────────────────────────────────────────────────
+
+model Payment {
+  id               String           @id @default(uuid())
+  externalId       String           @unique // Gateway payment ID: pay_xxxxx
+  customerId       String
+  customer         Customer         @relation(fields: [customerId], references: [id])
+  subscriptionId   String?
+  subscription     Subscription?    @relation(fields: [subscriptionId], references: [id])
+  invoiceId        String?
+  invoice          Invoice?         @relation(fields: [invoiceId], references: [id])
+  // amountInPaise: ALWAYS store money as integer paise. Never float rupees.
+  // 0.1 + 0.2 = 0.30000000000000004 in floating point — unacceptable in fintech.
+  amountInPaise    Int
+  currency         String           @default("INR")
+  status           PaymentStatus    @default(PENDING)
+  gateway          String           // razorpay | stripe | paytm
+  gatewayErrorCode String?          // Raw code from gateway e.g. "INSUFFICIENT_FUNDS"
+  declineCategory  DeclineCategory? // Classified by RCA engine in Phase 2
+  idempotencyKey   String           @unique // Prevents webhook double-processing
+  // version: Used for optimistic locking. Before updating status, worker
+  // checks that version in DB matches what it read. If not, another process
+  // already updated — retry or abort. Prevents silent data overwrites.
+  version          Int              @default(0)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  recoveryWorkflow RecoveryWorkflow?
+  auditEntries     AuditLog[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([externalId])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SUBSCRIPTION (Recurring Billing — e-NACH / UPI AutoPay)
+// ─────────────────────────────────────────────────────────────────
+
+model Subscription {
+  id              String             @id @default(uuid())
+  externalId      String             @unique // sub_xxxxx
+  customerId      String
+  customer        Customer           @relation(fields: [customerId], references: [id])
+  planName        String
+  amountInPaise   Int
+  currency        String             @default("INR")
+  status          SubscriptionStatus @default(ACTIVE)
+  mandateType     MandateType
+  nextBillingDate DateTime
+  // failedAttempts: Counter that resets to 0 on any successful charge.
+  // The Smart Retry Sequencer uses this to determine retry strategy.
+  failedAttempts  Int                @default(0)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  payments Payment[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([nextBillingDate]) // Critical: queried daily for upcoming billing
+}
+
+// ─────────────────────────────────────────────────────────────────
+// INVOICE (B2B Receivables)
+// ─────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id                String        @id @default(uuid())
+  externalId        String        @unique // inv_xxxxx
+  customerId        String
+  customer          Customer      @relation(fields: [customerId], references: [id])
+  amountInPaise     Int
+  paidAmountInPaise Int           @default(0)
+  currency          String        @default("INR")
+  status            InvoiceStatus @default(DRAFT)
+  dueDate           DateTime
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  payments Payment[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([dueDate]) // Queried to find overdue invoices
+}
+
+// ─────────────────────────────────────────────────────────────────
+// RECOVERY WORKFLOW — The Central Aggregate
+// One workflow per payment failure. Owns the entire recovery lifecycle.
+// ─────────────────────────────────────────────────────────────────
+
+model RecoveryWorkflow {
+  id                     String          @id @default(uuid())
+  // paymentId is @unique: enforces one workflow per payment at DB level.
+  // This is our SECOND idempotency layer after Redis (defence in depth).
+  paymentId              String          @unique
+  payment                Payment         @relation(fields: [paymentId], references: [id])
+  customerId             String
+  customer               Customer        @relation(fields: [customerId], references: [id])
+  amountAtRiskInPaise    Int
+  amountRecoveredInPaise Int             @default(0)
+  currency               String          @default("INR")
+  stage                  RecoveryStage   @default(PENDING)
+  retryCount             Int             @default(0)
+  outreachCount          Int             @default(0)
+  recoveryMethod         RecoveryMethod?
+  haltReason             String?
+  escalationReason       String?
+  nextActionAt           DateTime?       // When the next retry/outreach is scheduled
+  expiresAt              DateTime        // Auto-abandon after this date (30 days default)
+  // version: Optimistic lock field. Before any stage transition:
+  // UPDATE recovery_workflows SET stage=X, version=version+1
+  // WHERE id=? AND version=current_version
+  // If 0 rows affected, another worker already transitioned — abort.
+  version                Int             @default(0)
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  dunningContacts  DunningContact[]
+  promiseToPays    PromiseToPay[]
+  auditEntries     AuditLog[]
+  agentExecutions  AgentExecution[]
+
+  @@index([customerId])
+  @@index([stage])
+  @@index([nextActionAt]) // Queried by scheduler to find workflows due for action
+  @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DUNNING CONTACT LOG — Compliance Evidence
+// Every outreach attempt is logged. DunningRuleEngine queries this
+// table to enforce RBI's 3-contact-per-7-day limit.
+// ─────────────────────────────────────────────────────────────────
+
+model DunningContact {
+  id               String           @id @default(uuid())
+  workflowId       String
+  workflow         RecoveryWorkflow @relation(fields: [workflowId], references: [id])
+  customerId       String
+  customer         Customer         @relation(fields: [customerId], references: [id])
+  channel          DunningChannel
+  messageTemplate  String           // Template key e.g. "payment_failed_soft_v2"
+  sentAt           DateTime         @default(now())
+  deliveredAt      DateTime?
+  openedAt         DateTime?
+  clickedAt        DateTime?        // Customer clicked recovery link
+  customerResponse String?          // Raw reply from customer (Hinglish bot captures this)
+
+  @@index([workflowId])
+  @@index([customerId])
+  // This compound index powers the DunningRuleEngine's frequency check:
+  // "How many contacts did we send this customer in the last 7 days?"
+  @@index([customerId, sentAt])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// PROMISE TO PAY (PTP)
+// Created when a customer commits to paying by a specific date.
+// A background job monitors for breaches and re-triggers dunning.
+// ─────────────────────────────────────────────────────────────────
+
+model PromiseToPay {
+  id                    String           @id @default(uuid())
+  workflowId            String
+  workflow              RecoveryWorkflow @relation(fields: [workflowId], references: [id])
+  customerId            String
+  customer              Customer         @relation(fields: [customerId], references: [id])
+  promisedAmountInPaise Int
+  currency              String           @default("INR")
+  promisedByDate        DateTime
+  status                PromiseStatus    @default(ACTIVE)
+  createdByChannel      DunningChannel
+  reminderScheduledAt   DateTime?        // Send reminder 24h before promise date
+  fulfilledAt           DateTime?
+  breachedAt            DateTime?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  @@index([workflowId])
+  @@index([status])
+  // Queried daily to find promises approaching their date
+  @@index([promisedByDate, status])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AUDIT LOG — Immutable Append-Only Ledger
+// NEVER UPDATE OR DELETE rows here. This is the compliance record.
+// PostgreSQL RLS will enforce append-only in Phase 5.
+// ─────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id            String           @id @default(uuid())
+  eventType     AuditEventType
+  workflowId    String?
+  workflow      RecoveryWorkflow? @relation(fields: [workflowId], references: [id])
+  paymentId     String?
+  payment       Payment?         @relation(fields: [paymentId], references: [id])
+  customerId    String?
+  actorType     String           // From AuditActorType enum values
+  actorId       String           // ID of the process/agent/human that acted
+  // payload: Flexible JSONB field for event-specific data.
+  // Stores whatever context is relevant for that event type.
+  payload       Json
+  previousStage String?
+  newStage      String?
+  amountInPaise Int?
+  outcome       String           // SUCCESS | FAILURE | PENDING | REJECTED
+  errorMessage  String?
+  // checksum: SHA-256 hash of all other fields for tamper detection (Phase 5).
+  checksum      String?
+  // No updatedAt field — this record must never change after creation.
+  createdAt     DateTime         @default(now())
+
+  @@index([workflowId])
+  @@index([paymentId])
+  @@index([customerId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AGENT EXECUTION — AI Decision Trail
+// Every LLM call, tool selection, and policy check is recorded here.
+// The Merchant Dashboard's Audit Trace Viewer reads from this table.
+// ─────────────────────────────────────────────────────────────────
+
+model AgentExecution {
+  id                   String           @id @default(uuid())
+  workflowId           String
+  workflow             RecoveryWorkflow @relation(fields: [workflowId], references: [id])
+  // reasoning: The agent's chain-of-thought. Stored as full text for the
+  // dashboard's decision trace viewer — shows WHY the agent chose each action.
+  reasoning            String           @db.Text
+  selectedTool         String           // AgentToolName enum value
+  toolInput            Json             // Zod-validated tool arguments
+  confidenceScore      Float            // 0-1 agent self-assessment
+  policyCheckPassed    Boolean
+  policyCheckDetails   String           // Which rules were checked and results
+  executionStatus      String           // EXECUTED | REJECTED_BY_POLICY | EXECUTION_FAILED
+  executionError       String?
+  llmLatencyMs         Int
+  llmTokensUsed        Int
+  // estimatedCostInPaise: Tracks LLM API cost per decision.
+  // Reported in the ROI dashboard: "Cost of Recovery" metric.
+  estimatedCostInPaise Int
+  createdAt            DateTime         @default(now())
+
+  @@index([workflowId])
+  @@index([createdAt])
+}
