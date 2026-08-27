@@ -19,6 +19,7 @@ import { webhookRouter } from "./routes/webhook.routes";
 import { recoveryRouter } from "./routes/recovery.routes";
 import { agentRouter } from "./routes/agent.routes";
 import { analyticsRouter } from "./routes/analytics.routes";
+import { simulationRouter } from "./routes/simulation.routes";
 import { startPaymentEventWorker } from "./workers/paymentEvent.worker";
 import { startRetryExecutionWorker } from "./workers/retryExecution.worker";
 import { closeAllRedisConnections, getRedisClient } from "./config/redis";
@@ -100,7 +101,7 @@ app.get("/health", async (_req: Request, res: Response) => {
 app.use("/api/recovery", recoveryRouter);
 app.use("/api/agent", agentRouter);
 app.use("/api/analytics", analyticsRouter);
-// Phase 4: app.use('/api/simulate', simulationRouter);
+app.use("/api/simulate", simulationRouter);
 
 // ── 404 Handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {
@@ -131,6 +132,7 @@ const server = app.listen(PORT, () => {
   logger.info(`[RevRec API] Recovery: GET/POST http://localhost:${PORT}/api/recovery`);
   logger.info(`[RevRec API] Agent & Bot: POST http://localhost:${PORT}/api/agent`);
   logger.info(`[RevRec API] Analytics: GET http://localhost:${PORT}/api/analytics/summary`);
+  logger.info(`[RevRec API] Simulation: POST http://localhost:${PORT}/api/simulate/batch`);
 
   // Start BullMQ workers
   startPaymentEventWorker();

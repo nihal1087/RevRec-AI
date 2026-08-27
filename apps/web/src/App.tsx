@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Header } from "./components/Header";
 import { MetricCard } from "./components/MetricCard";
+import { SimulationControls } from "./components/SimulationControls";
 import { RecoveryCharts } from "./components/RecoveryCharts";
 import { WorkflowTable } from "./components/WorkflowTable";
 import { WorkflowDrawer } from "./components/WorkflowDrawer";
@@ -148,10 +149,13 @@ export function App(): React.JSX.Element {
           />
         </div>
 
-        {/* ── 3. Visual Charts (Recharts) ─────────────────────────────────── */}
+        {/* ── 3. Simulation Cockpit ──────────────────────────────────────── */}
+        <SimulationControls onSimulationCompleted={loadData} />
+
+        {/* ── 4. Visual Charts (Recharts) ─────────────────────────────────── */}
         <RecoveryCharts timeseries={timeseries} categories={categories} />
 
-        {/* ── 4. Workflows Table ───────────────────────────────────────────── */}
+        {/* ── 5. Workflows Table ───────────────────────────────────────────── */}
         <WorkflowTable
           workflows={workflows}
           selectedStage={selectedStage}

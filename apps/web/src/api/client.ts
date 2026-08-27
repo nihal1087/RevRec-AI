@@ -175,3 +175,62 @@ export async function sendChatMessage(
   if (!res.ok) throw new Error("Chat request failed");
   return res.json();
 }
+
+export interface BenchmarkReport {
+  summary: {
+    totalTransactionsAnalyzed: number;
+    recoveredTransactions: number;
+    totalRevenueAtRiskInPaise: number;
+    totalRevenueRecoveredInPaise: number;
+  };
+  comparison: {
+    naiveBaseline: {
+      strategyName: string;
+      recoveryRatePercent: number;
+      revenueRecoveredInPaise: number;
+      complianceViolationsReported: number;
+      downtimeCollisions: number;
+    };
+    revRecEngine: {
+      strategyName: string;
+      recoveryRatePercent: number;
+      revenueRecoveredInPaise: number;
+      complianceViolationsReported: number;
+      downtimeCollisions: number;
+    };
+    businessImpact: {
+      recoveryRateLiftPercent: number;
+      netAdditionalRevenueInPaise: number;
+      roiMultiple: string;
+    };
+  };
+}
+
+export async function triggerBatchSimulation(count: number = 25): Promise<{
+  batchSize: number;
+  totalAtRiskInPaise: number;
+  totalRecoveredInPaise: number;
+  recoveryRatePercent: number;
+  liftPercent: number;
+}> {
+  const res = await fetch(`${API_BASE}/api/simulate/batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ count }),
+  });
+  if (!res.ok) throw new Error("Batch simulation failed");
+  const json = await res.json();
+  return json.data;
+}
+
+export async function fetchBenchmarkReport(): Promise<BenchmarkReport> {
+  const res = await fetch(`${API_BASE}/api/simulate/benchmark`);
+  if (!res.ok) throw new Error("Failed to fetch benchmark report");
+  const json = await res.json();
+  return json.data;
+}
+
+export async function resetDemoData(): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/simulate/reset`, { method: "POST" });
+  if (!res.ok) throw new Error("Reset demo data failed");
+}
