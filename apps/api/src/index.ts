@@ -124,6 +124,11 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 // ── Start Server ──────────────────────────────────────────────────────────────
 const PORT = parseInt(process.env["PORT"] ?? "3001", 10);
+
+// Store worker references so they can be properly closed on shutdown
+let paymentEventWorker: ReturnType<typeof startPaymentEventWorker> | null = null;
+let retryExecutionWorker: ReturnType<typeof startRetryExecutionWorker> | null = null;
+
 const server = app.listen(PORT, () => {
   logger.info(`[RevRec API] Server running on http://localhost:${PORT}`);
   logger.info(`[RevRec API] Environment: ${process.env["NODE_ENV"] ?? "development"}`);
@@ -135,9 +140,14 @@ const server = app.listen(PORT, () => {
   logger.info(`[RevRec API] Simulation: POST http://localhost:${PORT}/api/simulate/batch`);
 
   // Start BullMQ workers
-  startPaymentEventWorker();
-  startRetryExecutionWorker();
-  logger.info(`[RevRec API] BullMQ payment event and retry execution workers started`);
+  try {
+    paymentEventWorker = startPaymentEventWorker();
+    retryExecutionWorker = startRetryExecutionWorker();
+    logger.info(`[RevRec API] BullMQ payment event and retry execution workers started`);
+  } catch (err) {
+    logger.error("[RevRec API] Failed to start BullMQ workers — shutting down", { err });
+    process.exit(1);
+  }
 });
 
 // ── Graceful Shutdown ─────────────────────────────────────────────────────────
@@ -148,6 +158,11 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
   server.close(async () => {
     logger.info("[RevRec API] HTTP server closed — no new requests accepted");
+
+    // Close BullMQ workers first (stops accepting new jobs, awaits in-flight jobs)
+    if (paymentEventWorker) await paymentEventWorker.close();
+    if (retryExecutionWorker) await retryExecutionWorker.close();
+    logger.info("[RevRec API] BullMQ workers closed");
 
     // Close database connections
     await prisma.$disconnect();
@@ -170,6 +185,15 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
 process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
+
+// ── Safety Net: Catch Unhandled Async Errors ──────────────────────────────────
+process.on("unhandledRejection", (reason: unknown) => {
+  logger.error("[RevRec API] Unhandled promise rejection", { reason });
+});
+process.on("uncaughtException", (err: Error) => {
+  logger.error("[RevRec API] Uncaught exception — shutting down", { err: err.message, stack: err.stack });
+  process.exit(1);
+});
 
 // Export for Supertest integration tests
 export { app };

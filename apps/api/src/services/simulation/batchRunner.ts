@@ -8,6 +8,7 @@
  */
 
 import { prisma, RecoveryStage, RecoveryMethod, DunningChannel, AuditEventType } from "@revrec/db";
+import { DeclineCategory } from "@revrec/types";
 import { generateBatchScenarios } from "./scenarioGenerator";
 import { classifyPaymentFailure } from "../rca.service";
 import { calculateNextRetrySchedule } from "../retrySequencer.service";
@@ -95,11 +96,15 @@ export async function runBatchSimulation(batchSize: number = 25): Promise<BatchS
     });
 
     // 4. Simulate Naive Baseline Outcome
-    if (rca.category === "HARD") {
+    if (rca.category === DeclineCategory.HARD) {
       naiveViolations += 1; // Naive blindly retries expired/stolen cards
-    } else if (rca.category === "NETWORK") {
-      naiveRecoveredPaise += item.amountInPaise; // Naive sometimes succeeds on network
-    } else if (rca.category === "SOFT") {
+    } else if (rca.category === DeclineCategory.NETWORK) {
+      // Naive immediate retry on bank switch outage succeeds ~35% of time
+      if (Math.random() < 0.35) {
+        naiveRecoveredPaise += item.amountInPaise;
+      }
+      naiveMaintenanceCollisions += Math.random() < 0.60 ? 1 : 0; // 60% chance of hitting maintenance
+    } else if (rca.category === DeclineCategory.SOFT) {
       // Naive immediate retry fails 75% of the time due to lack of salary alignment
       if (Math.random() < 0.20) {
         naiveRecoveredPaise += item.amountInPaise;
@@ -113,18 +118,18 @@ export async function runBatchSimulation(batchSize: number = 25): Promise<BatchS
     let method: RecoveryMethod | null = null;
     let haltReason: string | null = null;
 
-    if (rca.category === "HARD") {
+    if (rca.category === DeclineCategory.HARD) {
       stage = RecoveryStage.HALTED;
       haltReason = "Hard decline — card permanently invalid. Halted to prevent network penalties.";
       stageCounts.HALTED = (stageCounts.HALTED ?? 0) + 1;
-    } else if (rca.category === "NETWORK") {
+    } else if (rca.category === DeclineCategory.NETWORK) {
       // Fast retry recovered
       stage = RecoveryStage.RECOVERED;
       recoveredPaise = item.amountInPaise;
       method = RecoveryMethod.AUTO_RETRY;
       revRecRecoveredPaise += item.amountInPaise;
       stageCounts.RECOVERED = (stageCounts.RECOVERED ?? 0) + 1;
-    } else if (rca.category === "SOFT") {
+    } else if (rca.category === DeclineCategory.SOFT) {
       // Calculate salary aligned schedule
       const retrySchedule = calculateNextRetrySchedule({
         category: rca.category,
@@ -145,7 +150,7 @@ export async function runBatchSimulation(batchSize: number = 25): Promise<BatchS
           stageCounts.RETRYING = (stageCounts.RETRYING ?? 0) + 1;
         }
       }
-    } else if (rca.category === "INTENT_DROP") {
+    } else if (rca.category === DeclineCategory.INTENT_DROP) {
       // WhatsApp link recovery
       if (Math.random() < 0.65) {
         stage = RecoveryStage.RECOVERED;
@@ -158,9 +163,17 @@ export async function runBatchSimulation(batchSize: number = 25): Promise<BatchS
         stageCounts.OUTREACH_SENT = (stageCounts.OUTREACH_SENT ?? 0) + 1;
       }
     } else {
-      // Mandate / Subscription
-      stage = RecoveryStage.PROMISE_RECEIVED;
-      stageCounts.PROMISE_RECEIVED = (stageCounts.PROMISE_RECEIVED ?? 0) + 1;
+      // Mandate / Subscription — partial recovery via PTP/outreach
+      if (Math.random() < 0.45) {
+        stage = RecoveryStage.RECOVERED;
+        recoveredPaise = item.amountInPaise;
+        method = RecoveryMethod.PROMISE_TO_PAY_FULFILLED;
+        revRecRecoveredPaise += item.amountInPaise;
+        stageCounts.RECOVERED = (stageCounts.RECOVERED ?? 0) + 1;
+      } else {
+        stage = RecoveryStage.PROMISE_RECEIVED;
+        stageCounts.PROMISE_RECEIVED = (stageCounts.PROMISE_RECEIVED ?? 0) + 1;
+      }
     }
 
     // 6. Create RecoveryWorkflow

@@ -99,8 +99,8 @@ export function shiftPastBankMaintenance(candidateDate: Date, bankCode: string =
     const istOffsetMs = 5.5 * 60 * 60 * 1000;
     const istDate = new Date(adjusted.getTime() + istOffsetMs);
     
-    // Set to 08:30 AM IST (which is 03:00 AM UTC)
-    istDate.setUTCHours(3, 30, 0, 0);
+    // Set to 08:30 AM IST (which is 03:00 AM UTC = IST 05:30 offset minus 08:30)
+    istDate.setUTCHours(3, 0, 0, 0);
 
     // If that time was earlier today in UTC, move to tomorrow
     if (istDate.getTime() <= adjusted.getTime()) {

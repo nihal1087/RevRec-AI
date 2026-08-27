@@ -22,8 +22,10 @@ router.get("/", async (req: Request, res: Response) => {
   try {
     const stage = req.query["stage"] as RecoveryStage | undefined;
     const customerId = req.query["customerId"] as string | undefined;
-    const limit = Math.min(100, Math.max(1, parseInt((req.query["limit"] as string) ?? "20", 10)));
-    const page = Math.max(1, parseInt((req.query["page"] as string) ?? "1", 10));
+    const rawLimit = parseInt((req.query["limit"] as string) ?? "20", 10);
+    const rawPage = parseInt((req.query["page"] as string) ?? "1", 10);
+    const limit = Math.min(100, Math.max(1, Number.isNaN(rawLimit) ? 20 : rawLimit));
+    const page = Math.max(1, Number.isNaN(rawPage) ? 1 : rawPage);
     const skip = (page - 1) * limit;
 
     const where = {

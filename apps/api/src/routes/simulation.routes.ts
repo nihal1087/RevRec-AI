@@ -8,7 +8,7 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { runBatchSimulation } from "../services/simulation/batchRunner";
-import { prisma } from "@revrec/db";
+import { prisma, RecoveryStage } from "@revrec/db";
 import { logger } from "../config/logger";
 
 const router = Router();
@@ -46,7 +46,7 @@ router.post("/batch", async (req: Request, res: Response) => {
 router.get("/benchmark", async (_req: Request, res: Response) => {
   try {
     const totalWorkflows = await prisma.recoveryWorkflow.count();
-    const recoveredWorkflows = await prisma.recoveryWorkflow.count({ where: { stage: "RECOVERED" } });
+    const recoveredWorkflows = await prisma.recoveryWorkflow.count({ where: { stage: RecoveryStage.RECOVERED } });
     const financialAggregates = await prisma.recoveryWorkflow.aggregate({
       _sum: {
         amountAtRiskInPaise: true,
@@ -106,12 +106,15 @@ router.get("/benchmark", async (_req: Request, res: Response) => {
  */
 router.post("/reset", async (_req: Request, res: Response) => {
   try {
-    await prisma.auditLog.deleteMany();
-    await prisma.agentExecution.deleteMany();
-    await prisma.promiseToPay.deleteMany();
-    await prisma.dunningContact.deleteMany();
-    await prisma.recoveryWorkflow.deleteMany();
-    await prisma.payment.deleteMany();
+    // Wrap in a transaction so partial deletes never leave inconsistent state
+    await prisma.$transaction([
+      prisma.auditLog.deleteMany(),
+      prisma.agentExecution.deleteMany(),
+      prisma.promiseToPay.deleteMany(),
+      prisma.dunningContact.deleteMany(),
+      prisma.recoveryWorkflow.deleteMany(),
+      prisma.payment.deleteMany(),
+    ]);
 
     res.json({
       status: "success",

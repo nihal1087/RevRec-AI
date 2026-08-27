@@ -5,7 +5,7 @@
  * failed payment transactions, recovery workflows, and immutable audit logs.
  */
 
-import { PrismaClient, DeclineCategory, RecoveryStage, RecoveryMethod, DunningChannel, PromiseStatus, AuditEventType } from "@prisma/client";
+import { PrismaClient, PaymentStatus, DeclineCategory, RecoveryStage, RecoveryMethod, DunningChannel, PromiseStatus, AuditEventType } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -155,7 +155,7 @@ async function main() {
         idempotencyKey: `idem_seed_${extPayId}`,
         amountInPaise: s.amountPaise,
         currency: "INR",
-        status: s.stage === RecoveryStage.RECOVERED ? "CAPTURED" : "FAILED",
+        status: s.stage === RecoveryStage.RECOVERED ? PaymentStatus.CAPTURED : PaymentStatus.FAILED,
         gateway: "razorpay",
         gatewayErrorCode: s.code,
         declineCategory: s.cat,

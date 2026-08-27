@@ -22,11 +22,12 @@ export function WorkflowDrawer({
   onRefresh,
   onOpenBotForCustomer,
 }: WorkflowDrawerProps): React.JSX.Element | null {
-  if (!workflow) return null;
-
+  // ⚠️ Hooks MUST be called unconditionally (before any early returns) — Rules of Hooks
   const [isRetrying, setIsRetrying] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  if (!workflow) return null;
 
   const handleManualRetry = async () => {
     try {

@@ -6,7 +6,7 @@
  * the complete lifecycle of the recovery attempt for that failure event.
  */
 
-import { DunningChannel, RecoveryMethod, RecoveryStage } from "./enums";
+import { DeclineCategory, DunningChannel, RecoveryMethod, RecoveryStage } from "./enums";
 import { MoneyAmount } from "./payment.types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -111,7 +111,7 @@ export interface RecoveryMethodBreakdown {
 }
 
 export interface DeclineCategoryBreakdown {
-  readonly category: string;
+  readonly category: DeclineCategory;
   readonly count: number;
   readonly recovered: number;
   readonly abandoned: number;

@@ -32,8 +32,7 @@ export function HinglishBotSimulator({
   initialCustomerId = "cust_demo_101",
   initialWorkflowId,
 }: HinglishBotSimulatorProps): React.JSX.Element | null {
-  if (!isOpen) return null;
-
+  // ⚠️ Hooks MUST be called unconditionally (before any early returns) — Rules of Hooks
   const customerId = initialCustomerId;
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -44,6 +43,8 @@ export function HinglishBotSimulator({
   ]);
   const [inputText, setInputText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+
+  if (!isOpen) return null;
 
   const handleSendMessage = async (textToSend: string) => {
     if (!textToSend.trim()) return;

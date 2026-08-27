@@ -173,6 +173,8 @@ export async function sendChatMessage(
     }),
   });
   if (!res.ok) throw new Error("Chat request failed");
+  // NOTE: bot/chat responds with { status, replyText, intent, ... } spread at top-level
+  // (not wrapped in { data: ... } like other endpoints) — intentional design difference
   return res.json();
 }
 
