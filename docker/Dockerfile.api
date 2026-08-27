@@ -1,0 +1,53 @@
+# ══════════════════════════════════════════════════════════════════
+# Dockerfile.api — RevRec API Production Multi-Stage Build
+# ══════════════════════════════════════════════════════════════════
+
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install build dependencies for native modules
+RUN apk add --no-cache python3 make g++
+
+# Copy package manifests
+COPY package.json package-lock.json tsconfig.base.json ./
+COPY packages/types/package.json ./packages/types/
+COPY packages/types/tsconfig.json ./packages/types/
+COPY packages/types/src/ ./packages/types/src/
+
+COPY packages/db/package.json ./packages/db/
+COPY packages/db/tsconfig.json ./packages/db/
+COPY packages/db/prisma/ ./packages/db/prisma/
+COPY packages/db/src/ ./packages/db/src/
+
+COPY apps/api/package.json ./apps/api/
+COPY apps/api/tsconfig.json ./apps/api/
+COPY apps/api/src/ ./apps/api/src/
+
+# Install dependencies across workspaces
+RUN npm ci
+
+# Generate Prisma Client & Build TypeScript
+RUN npm run db:generate --workspace=packages/db
+RUN npx tsc -p packages/types/tsconfig.json
+RUN npx tsc -p packages/db/tsconfig.json
+RUN npx tsc -p apps/api/tsconfig.json
+
+# ─── Production Runtime Stage ──────────────────────────────────
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=3001
+
+# Copy built artifacts and production dependencies
+COPY --from=builder /app/package.json /app/package-lock.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages/types ./packages/types
+COPY --from=builder /app/packages/db ./packages/db
+COPY --from=builder /app/apps/api ./apps/api
+
+EXPOSE 3001
+
+CMD ["node", "apps/api/dist/index.js"]
