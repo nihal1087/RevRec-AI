@@ -17,6 +17,7 @@ import "dotenv/config"; // Must be absolute first — loads .env before any env 
 import express, { Request, Response, NextFunction } from "express";
 import { webhookRouter } from "./routes/webhook.routes";
 import { recoveryRouter } from "./routes/recovery.routes";
+import { agentRouter } from "./routes/agent.routes";
 import { startPaymentEventWorker } from "./workers/paymentEvent.worker";
 import { startRetryExecutionWorker } from "./workers/retryExecution.worker";
 import { closeAllRedisConnections, getRedisClient } from "./config/redis";
@@ -96,7 +97,7 @@ app.get("/health", async (_req: Request, res: Response) => {
 
 // ── STEP 4: Application Routes ────────────────────────────────────────────────
 app.use("/api/recovery", recoveryRouter);
-// Phase 3: app.use('/api/agent', agentRouter);
+app.use("/api/agent", agentRouter);
 // Phase 4: app.use('/api/simulate', simulationRouter);
 
 // ── 404 Handler ───────────────────────────────────────────────────────────────
@@ -126,6 +127,7 @@ const server = app.listen(PORT, () => {
   logger.info(`[RevRec API] Health: http://localhost:${PORT}/health`);
   logger.info(`[RevRec API] Webhook: POST http://localhost:${PORT}/api/webhooks`);
   logger.info(`[RevRec API] Recovery: GET/POST http://localhost:${PORT}/api/recovery`);
+  logger.info(`[RevRec API] Agent & Bot: POST http://localhost:${PORT}/api/agent`);
 
   // Start BullMQ workers
   startPaymentEventWorker();
