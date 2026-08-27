@@ -1,39 +1,20 @@
 /**
- * workers/paymentEvent.worker.ts — BullMQ Payment Event Processor
+ * workers/paymentEvent.worker.ts — BullMQ Payment Event Processor (Phase 2 Upgrade)
  *
- * This worker consumes jobs from the "payment-events" queue and performs
- * the transactional database work required to create Recovery Workflows.
- *
- * CONCURRENCY MODEL:
- * We run 5 concurrent workers. Each worker processes one job at a time.
- * 5 workers × ~200ms per job = handles ~25 events/second on one instance.
- * For Razorpay-scale (millions/day), we'd horizontally scale worker instances.
- *
- * FAILURE HANDLING:
- * If the job throws, BullMQ automatically retries up to 3 times with
- * exponential backoff (2s, 4s, 8s). After 3 failures, the job moves
- * to the "failed" queue for manual investigation.
- *
- * IDEMPOTENCY INSIDE THE WORKER:
- * The Redis idempotency check in the webhook handler is our first line.
- * But we need a SECOND line here because:
- * 1. Two workers could theoretically process the same eventId concurrently
- *    (BullMQ jobId deduplication prevents this, but we defend in depth)
- * 2. BullMQ's retry mechanism re-runs the same job after failures —
- *    we must be idempotent on retry (partial DB writes, then crash)
- *
- * The second line is PostgreSQL's unique constraint on RecoveryWorkflow.paymentId.
- * If we try to INSERT a duplicate, PostgreSQL throws P2002 (unique violation).
- * We catch that specific error and treat it as "already processed".
+ * Consumes raw payment failures, performs instant Root Cause Analysis (RCA),
+ * persists transactional entities, schedules smart retry jobs into BullMQ,
+ * and appends tamper-evident audit logs.
  */
 
 import { Worker, Job } from "bullmq";
 import { getBullMQRedisClient } from "../config/redis";
 import { type PaymentEventJobData } from "../queues/paymentEvents.queue";
-import { prisma, PaymentStatus, RecoveryStage, AuditEventType, Prisma } from "@revrec/db";
+import { retryExecutionQueue } from "../queues/retryExecution.queue";
+import { classifyPaymentFailure } from "../services/rca.service";
+import { calculateNextRetrySchedule } from "../services/retrySequencer.service";
+import { prisma, PaymentStatus, RecoveryStage, AuditEventType, DeclineCategory, Prisma } from "@revrec/db";
+import { logger } from "../config/logger";
 
-// How many jobs this single worker process handles in parallel.
-// Tune based on DB connection pool size: don't exceed pool_size / 2.
 const WORKER_CONCURRENCY = 5;
 
 // ── Main Job Processor ────────────────────────────────────────────────────────
@@ -43,7 +24,7 @@ async function processPaymentEvent(
 ): Promise<void> {
   const { eventId, eventType, gateway, rawPayload, receivedAt } = job.data;
 
-  console.log(
+  logger.info(
     `[Worker] Processing | event: ${eventType} | id: ${eventId} | attempt: ${job.attemptsMade + 1}`
   );
 
@@ -53,23 +34,15 @@ async function processPaymentEvent(
       break;
 
     case "subscription.charged.failed":
-      // Phase 2 will flesh this out with mandate retry logic
-      console.log(
-        `[Worker] subscription.charged.failed received — Phase 2 handler pending`
-      );
+      await handleSubscriptionChargeFailed(rawPayload, gateway, eventId, receivedAt);
       break;
 
     case "invoice.payment_failed":
-      // Phase 3 will handle B2B invoice recovery
-      console.log(
-        `[Worker] invoice.payment_failed received — Phase 3 handler pending`
-      );
+      logger.info(`[Worker] invoice.payment_failed received — queued for Phase 3 handler`);
       break;
 
     default:
-      console.log(
-        `[Worker] Unhandled event type: ${eventType} — job complete with no action`
-      );
+      logger.info(`[Worker] Unhandled event type: ${eventType} — job complete with no action`);
   }
 }
 
@@ -81,82 +54,53 @@ async function handlePaymentFailed(
   eventId: string,
   receivedAt: string
 ): Promise<void> {
-  // Extract the payment entity from Razorpay's nested payload structure
-  const paymentWrapper = payload["payment"] as
-    | { entity: Record<string, unknown> }
-    | undefined;
+  const paymentWrapper = payload["payment"] as { entity: Record<string, unknown> } | undefined;
 
   if (!paymentWrapper?.entity) {
-    throw new Error(
-      `payment.failed webhook missing payment.entity | eventId: ${eventId}`
-    );
+    throw new Error(`payment.failed webhook missing payment.entity | eventId: ${eventId}`);
   }
 
   const entity = paymentWrapper.entity;
-
-  // Validate required fields exist before touching the database
   const externalId = entity["id"] as string | undefined;
   const externalCustomerId = entity["customer_id"] as string | undefined;
   const amountInPaise = entity["amount"] as number | undefined;
   const errorCode = (entity["error_code"] as string | undefined) ?? "UNKNOWN";
-  const errorDescription =
-    (entity["error_description"] as string | undefined) ?? "";
+  const errorDescription = (entity["error_description"] as string | undefined) ?? "";
+  const bankCode = (entity["bank"] as string | undefined) ?? "DEFAULT";
 
   if (!externalId || !amountInPaise) {
-    throw new Error(
-      `payment.failed entity missing required fields (id, amount) | eventId: ${eventId}`
-    );
+    throw new Error(`payment.failed entity missing required fields (id, amount) | eventId: ${eventId}`);
   }
 
   const customerId = externalCustomerId ?? `anonymous_${externalId}`;
 
-  /**
-   * SINGLE ATOMIC TRANSACTION for all DB writes.
-   *
-   * WHY ONE TRANSACTION:
-   * If we write the Payment but crash before writing the AuditLog,
-   * we have an incomplete record. Wrapping everything in a transaction
-   * guarantees all-or-nothing: either all 4 writes succeed, or NONE do,
-   * and BullMQ retries the job from scratch on a clean state.
-   *
-   * OPTIMISTIC LOCKING on Payment:
-   * When upserting payment status, we use `version: { increment: 1 }`.
-   * This ensures every status change is recorded and detectable.
-   * A full optimistic lock (check version before update) is added in Phase 2
-   * when concurrent retry scheduling begins.
-   */
+  // 1. Execute instant Root Cause Analysis (RCA)
+  const rcaResult = classifyPaymentFailure(errorCode, errorDescription, gateway);
+  logger.info(`[RCA] Classified ${externalId} as ${rcaResult.category} (Confidence: ${rcaResult.confidence * 100}%) — ${rcaResult.reasoning}`);
+
+  // 2. Transactional Database Ingestion & Workflow State Machine Setup
   await prisma.$transaction(async (tx) => {
-    // ── 1. Upsert Customer ───────────────────────────────────────────────────
-    // In production, customer details come from Razorpay's Customer API.
-    // Here we ensure the customer record exists before creating related records.
+    // ── Upsert Customer Record ───────────────────────────────────────────────
     const customer = await tx.customer.upsert({
       where: { externalId: customerId },
-      update: {
-        // Don't overwrite existing data — customer record may have been enriched
-        updatedAt: new Date(),
-      },
+      update: { updatedAt: new Date() },
       create: {
         externalId: customerId,
         name: (entity["name"] as string | undefined) ?? "Unknown Customer",
-        email:
-          (entity["email"] as string | undefined) ??
-          `${customerId}@unknown.revrec`,
-        phone:
-          (entity["contact"] as string | undefined) ?? "+910000000000",
-        riskScore: 50, // Default — will be enriched by CustomerTool in Phase 3
+        email: (entity["email"] as string | undefined) ?? `${customerId}@unknown.revrec`,
+        phone: (entity["contact"] as string | undefined) ?? "+910000000000",
+        riskScore: 50,
         ltvInPaise: 0,
       },
     });
 
-    // ── 2. Upsert Payment Record ─────────────────────────────────────────────
-    // We use upsert because the payment may already exist in PENDING state
-    // if a payment.created event was processed before this payment.failed event.
+    // ── Upsert Payment Record with RCA Category ──────────────────────────────
     const payment = await tx.payment.upsert({
       where: { externalId },
       update: {
         status: PaymentStatus.FAILED,
         gatewayErrorCode: errorCode,
-        // Increment version to track this state change (optimistic lock marker)
+        declineCategory: rcaResult.category,
         version: { increment: 1 },
         updatedAt: new Date(),
       },
@@ -167,18 +111,14 @@ async function handlePaymentFailed(
         status: PaymentStatus.FAILED,
         gateway,
         gatewayErrorCode: errorCode,
-        // idempotencyKey links this payment record to the webhook event that created it
+        declineCategory: rcaResult.category,
         idempotencyKey: eventId,
       },
     });
 
-    // ── 3. Create Recovery Workflow (if not already exists) ─────────────────
-    // paymentId has a @unique constraint. If a workflow already exists for this
-    // payment (e.g., from a previous retry of this job), the findUnique
-    // returns it and we skip creation — idempotent behavior.
+    // ── Check / Create Recovery Workflow ────────────────────────────────────
     const existingWorkflow = await tx.recoveryWorkflow.findUnique({
       where: { paymentId: payment.id },
-      select: { id: true }, // Only need to check existence — don't fetch full record
     });
 
     if (!existingWorkflow) {
@@ -187,14 +127,12 @@ async function handlePaymentFailed(
           paymentId: payment.id,
           customerId: customer.id,
           amountAtRiskInPaise: amountInPaise,
-          stage: RecoveryStage.PENDING,
-          // 30 days to recover — after that, the workflow auto-abandons.
-          // This prevents stale workflows from consuming agent resources forever.
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          stage: rcaResult.initialStage,
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30-day lifecycle
         },
       });
 
-      // ── 4a. Audit: Workflow Created ──────────────────────────────────────
+      // Audit: Workflow Created
       await tx.auditLog.create({
         data: {
           eventType: AuditEventType.WORKFLOW_CREATED,
@@ -203,30 +141,125 @@ async function handlePaymentFailed(
           customerId: customer.id,
           actorType: "WEBHOOK_PROCESSOR",
           actorId: "payment-event-worker",
-          payload: {
-            eventId,
-            gateway,
-            errorCode,
-            errorDescription,
-            amountInPaise,
-            receivedAt,
-          },
-          newStage: RecoveryStage.PENDING,
+          payload: { eventId, gateway, errorCode, errorDescription, amountInPaise, receivedAt },
+          newStage: rcaResult.initialStage,
           amountInPaise,
           outcome: "SUCCESS",
         },
       });
 
-      console.log(
-        `[Worker] ✅ RecoveryWorkflow created: ${workflow.id} for payment: ${payment.id} | ₹${amountInPaise / 100} at risk`
-      );
-    } else {
-      console.log(
-        `[Worker] ⏭️  RecoveryWorkflow already exists for payment: ${payment.id} — skipping creation`
-      );
+      // Audit: RCA Classification Record
+      await tx.auditLog.create({
+        data: {
+          eventType: AuditEventType.RCA_CLASSIFIED,
+          workflowId: workflow.id,
+          paymentId: payment.id,
+          customerId: customer.id,
+          actorType: "RCA_ENGINE",
+          actorId: "rca-service",
+          payload: {
+            category: rcaResult.category,
+            confidence: rcaResult.confidence,
+            reasoning: rcaResult.reasoning,
+            isRetryable: rcaResult.isRetryable,
+            recommendedAction: rcaResult.recommendedAction,
+          },
+          amountInPaise,
+          outcome: "SUCCESS",
+        },
+      });
+
+      // ── Smart Retry Scheduling if Retryable ─────────────────────────────────
+      if (rcaResult.isRetryable) {
+        const retrySchedule = calculateNextRetrySchedule({
+          category: rcaResult.category,
+          currentAttemptCount: 0,
+          bankCode,
+          customerRiskScore: customer.riskScore,
+        });
+
+        if (retrySchedule.shouldRetry && retrySchedule.scheduledAt) {
+          // Update workflow state to RETRYING with nextActionAt
+          await tx.recoveryWorkflow.update({
+            where: { id: workflow.id },
+            data: {
+              stage: RecoveryStage.RETRYING,
+              nextActionAt: retrySchedule.scheduledAt,
+              version: { increment: 1 },
+            },
+          });
+
+          // Enqueue delayed job into BullMQ
+          await retryExecutionQueue.add(
+            "execute-retry",
+            {
+              workflowId: workflow.id,
+              paymentId: payment.id,
+              customerId: customer.id,
+              attemptNumber: 1,
+              scheduledFor: retrySchedule.scheduledAt.toISOString(),
+              strategyUsed: retrySchedule.strategyUsed,
+            },
+            {
+              delay: Math.max(1000, retrySchedule.delaySeconds * 1000),
+              jobId: `retry_${workflow.id}_att_1`,
+            }
+          );
+
+          // Audit: Payment Retry Scheduled
+          await tx.auditLog.create({
+            data: {
+              eventType: AuditEventType.PAYMENT_RETRY_SCHEDULED,
+              workflowId: workflow.id,
+              paymentId: payment.id,
+              customerId: customer.id,
+              actorType: "RETRY_SEQUENCER",
+              actorId: "retry-sequencer-service",
+              payload: {
+                attemptNumber: 1,
+                scheduledAt: retrySchedule.scheduledAt.toISOString(),
+                delaySeconds: retrySchedule.delaySeconds,
+                strategyUsed: retrySchedule.strategyUsed,
+                reasoning: retrySchedule.reasoning,
+              },
+              previousStage: RecoveryStage.PENDING,
+              newStage: RecoveryStage.RETRYING,
+              amountInPaise,
+              outcome: "SUCCESS",
+            },
+          });
+
+          logger.info(`[Sequencer] ⏰ Retry #1 scheduled for workflow ${workflow.id} at ${retrySchedule.scheduledAt.toISOString()} (${retrySchedule.strategyUsed})`);
+        }
+      } else if (rcaResult.category === DeclineCategory.HARD) {
+        // Halt workflow immediately on Hard Declines
+        await tx.recoveryWorkflow.update({
+          where: { id: workflow.id },
+          data: {
+            stage: RecoveryStage.HALTED,
+            haltReason: rcaResult.reasoning,
+            version: { increment: 1 },
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            eventType: AuditEventType.WORKFLOW_HALTED,
+            workflowId: workflow.id,
+            paymentId: payment.id,
+            customerId: customer.id,
+            actorType: "RCA_ENGINE",
+            actorId: "rca-service",
+            payload: { reason: rcaResult.reasoning },
+            previousStage: RecoveryStage.PENDING,
+            newStage: RecoveryStage.HALTED,
+            outcome: "HALTED",
+          },
+        });
+      }
     }
 
-    // ── 4b. Audit: Payment Failed Event (always log, even if workflow existed) ──
+    // Audit: Raw Payment Failed Event
     await tx.auditLog.create({
       data: {
         eventType: AuditEventType.PAYMENT_FAILED,
@@ -250,18 +283,40 @@ async function handlePaymentFailed(
     });
   });
 
-  console.log(
-    `[Worker] ✅ Transaction complete for payment: ${externalId}`
-  );
+  logger.info(`[Worker] ✅ Processed payment failure ${externalId} with RCA category ${rcaResult.category}`);
+}
+
+// ── subscription.charged.failed Handler ───────────────────────────────────────
+
+async function handleSubscriptionChargeFailed(
+  payload: Record<string, unknown>,
+  gateway: string,
+  eventId: string,
+  receivedAt: string
+): Promise<void> {
+  const subWrapper = payload["subscription"] as { entity: Record<string, unknown> } | undefined;
+  if (!subWrapper?.entity) return;
+
+  const entity = subWrapper.entity;
+  const externalSubId = entity["id"] as string | undefined;
+  const customerId = (entity["customer_id"] as string | undefined) ?? `sub_cust_${externalSubId}`;
+
+  logger.info(`[Worker] Processing subscription failure for ${externalSubId} (Customer: ${customerId}, Gateway: ${gateway}, Event: ${eventId}, Received: ${receivedAt})`);
+
+  // Phase 2 Mandate handler: Upsert Subscription failed attempts counter
+  if (externalSubId) {
+    await prisma.subscription.updateMany({
+      where: { externalId: externalSubId },
+      data: {
+        failedAttempts: { increment: 1 },
+        updatedAt: new Date(),
+      },
+    });
+  }
 }
 
 // ── Worker Factory ────────────────────────────────────────────────────────────
 
-/**
- * Creates and starts the BullMQ worker.
- * Exported as a factory function (not auto-started) so tests can
- * import the file without inadvertently starting the worker.
- */
 export function startPaymentEventWorker(): Worker<PaymentEventJobData> {
   const worker = new Worker<PaymentEventJobData>(
     "payment-events",
@@ -269,36 +324,17 @@ export function startPaymentEventWorker(): Worker<PaymentEventJobData> {
     {
       connection: getBullMQRedisClient(),
       concurrency: WORKER_CONCURRENCY,
-      // Lock duration: if a worker takes > 30s, BullMQ re-queues the job.
-      // Our jobs should complete in < 500ms. 30s gives huge safety margin.
       lockDuration: 30_000,
     }
   );
 
   worker.on("completed", (job: Job<PaymentEventJobData>) => {
-    console.log(
-      `[Worker] ✅ Completed | jobId: ${job.id} | event: ${job.name}`
-    );
+    logger.info(`[Worker] ✅ Completed event: ${job.name} | id: ${job.id}`);
   });
 
   worker.on("failed", (job: Job<PaymentEventJobData> | undefined, err: Error) => {
-    console.error(
-      `[Worker] ❌ Failed | jobId: ${job?.id} | event: ${job?.name} | error: ${err.message}`
-    );
+    logger.error(`[Worker] ❌ Failed event: ${job?.name} | id: ${job?.id} | error: ${err.message}`);
   });
-
-  worker.on("error", (err: Error) => {
-    console.error("[Worker] ❌ Worker-level error:", err.message);
-  });
-
-  worker.on("stalled", (jobId: string) => {
-    // Stalled = worker locked the job but didn't complete it before lockDuration expired
-    console.warn(`[Worker] ⚠️  Job stalled: ${jobId} — will be automatically re-queued`);
-  });
-
-  console.log(
-    `[Worker] 🚀 Payment event worker started | concurrency: ${WORKER_CONCURRENCY}`
-  );
 
   return worker;
 }

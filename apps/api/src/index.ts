@@ -16,7 +16,9 @@
 import "dotenv/config"; // Must be absolute first — loads .env before any env var reads
 import express, { Request, Response, NextFunction } from "express";
 import { webhookRouter } from "./routes/webhook.routes";
+import { recoveryRouter } from "./routes/recovery.routes";
 import { startPaymentEventWorker } from "./workers/paymentEvent.worker";
+import { startRetryExecutionWorker } from "./workers/retryExecution.worker";
 import { closeAllRedisConnections, getRedisClient } from "./config/redis";
 import { logger } from "./config/logger";
 import { prisma } from "@revrec/db";
@@ -92,8 +94,8 @@ app.get("/health", async (_req: Request, res: Response) => {
   });
 });
 
-// ── STEP 4: Future Routes (added in subsequent phases) ────────────────────────
-// Phase 2: app.use('/api/recovery', recoveryRouter);
+// ── STEP 4: Application Routes ────────────────────────────────────────────────
+app.use("/api/recovery", recoveryRouter);
 // Phase 3: app.use('/api/agent', agentRouter);
 // Phase 4: app.use('/api/simulate', simulationRouter);
 
@@ -123,13 +125,12 @@ const server = app.listen(PORT, () => {
   logger.info(`[RevRec API] Environment: ${process.env["NODE_ENV"] ?? "development"}`);
   logger.info(`[RevRec API] Health: http://localhost:${PORT}/health`);
   logger.info(`[RevRec API] Webhook: POST http://localhost:${PORT}/api/webhooks`);
+  logger.info(`[RevRec API] Recovery: GET/POST http://localhost:${PORT}/api/recovery`);
 
-  // Start BullMQ worker in the same process for development convenience.
-  // In production, this would be a separate worker process/container:
-  //   SEPARATE: `node dist/workers/paymentEvent.worker.js`
-  // For this project, co-location is fine and demonstrates the system holistically.
+  // Start BullMQ workers
   startPaymentEventWorker();
-  logger.info(`[RevRec API] BullMQ payment event worker started`);
+  startRetryExecutionWorker();
+  logger.info(`[RevRec API] BullMQ payment event and retry execution workers started`);
 });
 
 // ── Graceful Shutdown ─────────────────────────────────────────────────────────
