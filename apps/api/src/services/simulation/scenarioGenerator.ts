@@ -45,12 +45,18 @@ const HARD_CODES = ["CARD_EXPIRED", "STOLEN_CARD", "ACCOUNT_CLOSED", "INVALID_CA
 /**
  * Generates a random failure scenario.
  */
-export function generateRandomFailure(index: number = 0): SyntheticPaymentFailure {
+export function generateRandomFailure(index: number = 0, totalCount: number = 50): SyntheticPaymentFailure {
   const rand = Math.random();
   const name = INDIAN_NAMES[index % INDIAN_NAMES.length]!;
   const extId = `cust_synth_${Date.now().toString(36)}_${index}`;
   const phone = `+9198${Math.floor(10000000 + Math.random() * 90000000)}`;
   const email = `${name.toLowerCase().replace(/\s+/g, ".")}@example.in`;
+
+  // Distribute across the past 14 days so the 14-Day Recovery Trajectory renders rich, authentic trends
+  const daysAgo = totalCount > 1
+    ? ((index % 14) + Math.random() * 0.85)
+    : Math.random() * 13;
+  const failedAt = new Date(Date.now() - daysAgo * 86400 * 1000);
 
   if (rand < 0.40) {
     // 40% Soft Declines (Salary cycle / Liquidity)
@@ -69,7 +75,7 @@ export function generateRandomFailure(index: number = 0): SyntheticPaymentFailur
       gateway: "razorpay",
       gatewayErrorCode: code,
       declineCategory: DeclineCategory.SOFT,
-      failedAt: new Date(Date.now() - Math.floor(Math.random() * 3600 * 1000)),
+      failedAt,
       scenarioType: "SALARY_CYCLE_DROP",
     };
   } else if (rand < 0.65) {
@@ -89,7 +95,7 @@ export function generateRandomFailure(index: number = 0): SyntheticPaymentFailur
       gateway: "razorpay",
       gatewayErrorCode: code,
       declineCategory: DeclineCategory.NETWORK,
-      failedAt: new Date(),
+      failedAt,
       scenarioType: "BANK_MAINTENANCE",
     };
   } else if (rand < 0.80) {
@@ -109,7 +115,7 @@ export function generateRandomFailure(index: number = 0): SyntheticPaymentFailur
       gateway: "razorpay",
       gatewayErrorCode: code,
       declineCategory: DeclineCategory.INTENT_DROP,
-      failedAt: new Date(),
+      failedAt,
       scenarioType: "INTENT_DROP",
     };
   } else if (rand < 0.92) {
@@ -129,7 +135,7 @@ export function generateRandomFailure(index: number = 0): SyntheticPaymentFailur
       gateway: "razorpay",
       gatewayErrorCode: code,
       declineCategory: DeclineCategory.MANDATE_FAILURE,
-      failedAt: new Date(),
+      failedAt,
       scenarioType: "MANDATE_FAILURE",
     };
   } else {
@@ -149,7 +155,7 @@ export function generateRandomFailure(index: number = 0): SyntheticPaymentFailur
       gateway: "razorpay",
       gatewayErrorCode: code,
       declineCategory: DeclineCategory.HARD,
-      failedAt: new Date(),
+      failedAt,
       scenarioType: "HARD_DECLINE",
     };
   }
@@ -159,5 +165,5 @@ export function generateRandomFailure(index: number = 0): SyntheticPaymentFailur
  * Generates a batch of N realistic failure scenarios.
  */
 export function generateBatchScenarios(count: number = 50): SyntheticPaymentFailure[] {
-  return Array.from({ length: count }, (_, i) => generateRandomFailure(i));
+  return Array.from({ length: count }, (_, i) => generateRandomFailure(i, count));
 }

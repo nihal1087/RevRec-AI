@@ -216,6 +216,7 @@ export async function runBatchSimulation(batchSize: number = 25): Promise<BatchS
         amountInPaise: item.amountInPaise,
         newStage: stage,
         payload: { scenario: item.scenarioType, code: item.gatewayErrorCode },
+        createdAt: item.failedAt,
       },
     });
   }

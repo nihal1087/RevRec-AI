@@ -157,7 +157,7 @@ export function RecoveryCharts({
             </p>
           </div>
 
-          <div style={{ height: "140px", width: "100%" }}>
+          <div style={{ height: "170px", width: "100%" }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={categories?.byCategory ?? []}
@@ -181,14 +181,15 @@ export function RecoveryCharts({
                   tick={{ fill: "#6b7280", fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}
-                  width={90}
+                  width={92}
+                  interval={0}
                   tickFormatter={formatCategoryLabel}
                 />
                 <Tooltip
                   contentStyle={tooltipStyle}
                   formatter={(val: number) => [`${val}%`, "Recovery Rate"]}
                 />
-                <Bar dataKey="recoveryRate" radius={[0, 4, 4, 0]} fill="#2563eb" barSize={12}>
+                <Bar dataKey="recoveryRate" radius={[0, 4, 4, 0]} fill="#2563eb" barSize={11}>
                   {(categories?.byCategory ?? []).map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}

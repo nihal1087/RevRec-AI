@@ -342,17 +342,28 @@ export function WorkflowTable({
 
                   {/* Amount */}
                   <td>
-                    <span
-                      style={{
-                        fontFamily: 'monospace',
-                        fontWeight: 600,
-                        color: 'var(--text-strong)',
-                        fontSize: 13.5,
-                        fontVariantNumeric: 'tabular-nums',
-                      }}
-                    >
-                      ₹{(workflow.amountAtRiskInPaise / 100).toLocaleString('en-IN')}
-                    </span>
+                    <div style={{ display: 'inline-flex', alignItems: 'baseline', fontVariantNumeric: 'tabular-nums' }}>
+                      <span
+                        style={{
+                          fontSize: 11.5,
+                          fontWeight: 500,
+                          color: 'var(--text-soft)',
+                          marginRight: 2,
+                        }}
+                      >
+                        ₹
+                      </span>
+                      <span
+                        style={{
+                          fontWeight: 600,
+                          color: 'var(--text-strong)',
+                          fontSize: 13.5,
+                          letterSpacing: '-0.01em',
+                        }}
+                      >
+                        {(workflow.amountAtRiskInPaise / 100).toLocaleString('en-IN')}
+                      </span>
+                    </div>
                   </td>
 
                   {/* RCA / Category */}

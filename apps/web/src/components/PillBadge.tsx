@@ -125,14 +125,22 @@ export function RiskBadge({
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 6,
         ...style,
       }}
       className={className}
     >
-      <PillBadge variant={variant}>
-        {normalizedTier} RISK
-      </PillBadge>
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          width: showScore ? 92 : undefined,
+          flexShrink: 0,
+        }}
+      >
+        <PillBadge variant={variant}>
+          {normalizedTier} RISK
+        </PillBadge>
+      </div>
       {showScore && score !== undefined && score !== null && (
         <span
           style={{
@@ -140,6 +148,7 @@ export function RiskBadge({
             fontWeight: 600,
             color: "var(--text-faint)",
             fontVariantNumeric: "tabular-nums",
+            marginLeft: 8,
           }}
         >
           {score}
