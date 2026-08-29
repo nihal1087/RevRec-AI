@@ -1,98 +1,152 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Header } from "./components/Header";
-import { MetricCard } from "./components/MetricCard";
+import Header from "./components/Header";
+import Sidebar from "./components/Sidebar";
+import MetricCard from "./components/MetricCard";
 import { SimulationControls } from "./components/SimulationControls";
 import { RecoveryCharts } from "./components/RecoveryCharts";
 import { WorkflowTable } from "./components/WorkflowTable";
 import { WorkflowDrawer } from "./components/WorkflowDrawer";
 import { HinglishBotSimulator } from "./components/HinglishBotSimulator";
+import { DemoStore } from "./components/DemoStore";
+import { CaseDetailPage } from "./components/CaseDetailPage";
+import { CommunicationsHub } from "./components/CommunicationsHub";
+import { RecoveryFunnel } from "./components/RecoveryFunnel";
 import {
   AnalyticsSummary,
   TimeseriesPoint,
   CategoryAnalytics,
   WorkflowItem,
+  RecoveryFunnelData,
   fetchAnalyticsSummary,
   fetchTimeseries,
   fetchCategoryAnalytics,
   fetchWorkflows,
   fetchWorkflowDetails,
+  fetchRecoveryFunnel,
 } from "./api/client";
-import {
-  DollarSign,
-  Activity,
-  Bot,
-  ShieldAlert,
-} from "lucide-react";
+import { DollarSign, Activity, ShieldAlert } from "lucide-react";
 
-// Synthetic initial defaults so dashboard looks rich even before database has 500 events
-const DEFAULT_SUMMARY: AnalyticsSummary = {
+const INITIAL_SUMMARY: AnalyticsSummary = {
   financials: {
-    totalAtRiskInPaise: 38450000, // ₹3,84,500
-    totalRecoveredInPaise: 26146000, // ₹2,61,460
-    recoveryRatePercent: 68.0,
+    totalAtRiskInPaise: 0,
+    totalRecoveredInPaise: 0,
+    recoveryRatePercent: 0,
     currency: "INR",
   },
   counts: {
-    total: 142,
-    recovered: 96,
-    active: 32,
-    halted: 9,
-    escalated: 5,
+    total: 0,
+    recovered: 0,
+    active: 0,
+    halted: 0,
+    escalated: 0,
   },
   aiMetrics: {
-    totalExecutions: 84,
-    policyBlockedCount: 6,
-    totalTokensUsed: 28400,
-    totalCostInPaise: 85, // ₹0.85
-    avgLatencyMs: 240,
-    avgConfidenceScore: 0.94,
+    totalExecutions: 0,
+    policyBlockedCount: 0,
+    totalTokensUsed: 0,
+    totalCostInPaise: 0,
+    avgLatencyMs: 0,
+    avgConfidenceScore: 0,
   },
 };
 
 export function App(): React.JSX.Element {
-  const [summary, setSummary] = useState<AnalyticsSummary>(DEFAULT_SUMMARY);
+  const [summary, setSummary] = useState<AnalyticsSummary>(INITIAL_SUMMARY);
   const [timeseries, setTimeseries] = useState<TimeseriesPoint[]>([]);
   const [categories, setCategories] = useState<CategoryAnalytics | null>(null);
+  const [funnelData, setFunnelData] = useState<RecoveryFunnelData | null>(null);
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [selectedStage, setSelectedStage] = useState<string>("");
-  const [selectedWorkflow, setSelectedWorkflow] = useState<WorkflowItem | null>(null);
+  const [drawerWorkflow, setDrawerWorkflow] = useState<WorkflowItem | null>(null);
+  const [caseDetailWorkflow, setCaseDetailWorkflow] = useState<WorkflowItem | null>(null);
   const [isBotOpen, setIsBotOpen] = useState(false);
   const [botCustomerId, setBotCustomerId] = useState("cust_demo_101");
   const [botWorkflowId, setBotWorkflowId] = useState<string | undefined>(undefined);
+  // M16: isLoading = manual refresh (shows full spinner in header button)
+  //      isPolling = silent background interval (tiny dot, no spinner)
   const [isLoading, setIsLoading] = useState(false);
+  const [isPolling, setIsPolling] = useState(false);
+  // M15: track top-level API failure so the UI degrades gracefully
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [activeNavTab, setActiveNavTab] = useState("overview");
+  const [activeKpiTile, setActiveKpiTile] = useState<"at_risk" | "recovered" | "in_flight" | null>(null);
 
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
+  // M16: accepts a `silent` flag — background polls don't trigger the full loading spinner
+  const loadData = useCallback(async (silent = false) => {
+    if (silent) {
+      setIsPolling(true);
+    } else {
+      setIsLoading(true);
+    }
+    setFetchError(null);
     try {
-      const [sum, time, cat, wf] = await Promise.allSettled([
+      const [sum, time, cat, wf, fun] = await Promise.allSettled([
         fetchAnalyticsSummary(),
         fetchTimeseries(),
         fetchCategoryAnalytics(),
         fetchWorkflows(selectedStage),
+        fetchRecoveryFunnel(),
       ]);
-
+      // M15: if ALL calls failed, show a degraded banner instead of silently showing stale data
+      const allFailed = [sum, time, cat, wf, fun].every((r) => r.status === "rejected");
+      if (allFailed) {
+        setFetchError("Unable to reach the API — showing cached data. Check if the API server is running.");
+      }
       if (sum.status === "fulfilled") setSummary(sum.value);
       if (time.status === "fulfilled") setTimeseries(time.value);
       if (cat.status === "fulfilled") setCategories(cat.value);
       if (wf.status === "fulfilled") setWorkflows(wf.value);
+      if (fun.status === "fulfilled") setFunnelData(fun.value);
     } finally {
       setIsLoading(false);
+      setIsPolling(false);
     }
   }, [selectedStage]);
 
   useEffect(() => {
-    loadData();
-    // 15-second polling for real-time merchant monitoring
-    const interval = setInterval(loadData, 15000);
+    loadData(); // initial load — not silent
+    // M16: background polls are silent so the header button doesn't spin every 15s
+    const interval = setInterval(() => loadData(true), 15000);
     return () => clearInterval(interval);
   }, [loadData]);
 
+  // Unselect KPI tile and Funnel stages on clicking blank space
+  useEffect(() => {
+    const handleDocumentClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isInteractiveZone =
+        target?.closest("#kpi-cards-grid") ||
+        target?.closest("#funnel-stages-grid") ||
+        target?.closest("#workflow-ledger-section");
+
+      if (!isInteractiveZone) {
+        setActiveKpiTile(null);
+        setSelectedStage("");
+      }
+    };
+    document.addEventListener("click", handleDocumentClick);
+    return () => document.removeEventListener("click", handleDocumentClick);
+  }, []);
+
   const handleInspectWorkflow = async (workflow: WorkflowItem) => {
+    setDrawerWorkflow(workflow);
     try {
       const fullDetails = await fetchWorkflowDetails(workflow.id);
-      setSelectedWorkflow(fullDetails);
+      setDrawerWorkflow(fullDetails);
     } catch {
-      setSelectedWorkflow(workflow);
+      setDrawerWorkflow(workflow);
+    }
+  };
+
+  const handleOpenFullCase = async (workflow: WorkflowItem) => {
+    setDrawerWorkflow(null);
+    setCaseDetailWorkflow(workflow);
+    setActiveNavTab("case-detail");
+    try {
+      const fullDetails = await fetchWorkflowDetails(workflow.id);
+      setCaseDetailWorkflow(fullDetails);
+    } catch {
+      // Keep optimistic workflow
     }
   };
 
@@ -103,87 +157,253 @@ export function App(): React.JSX.Element {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col font-sans">
-      {/* ── 1. Top Header ─────────────────────────────────────────────────── */}
-      <Header
-        onRefresh={loadData}
-        isLoading={isLoading}
-        onOpenBot={() => handleOpenBot()}
+    <div style={{ minHeight: "100vh", background: "var(--bg-page)", display: "flex" }}>
+      {/* ── Left Sidebar Navigation (240px Fixed) ── */}
+      <Sidebar
+        activeTab={activeNavTab}
+        onSelectTab={(tab) => {
+          if (tab !== "case-detail") setCaseDetailWorkflow(null);
+          if (tab === "overview") {
+            setSelectedStage("");
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
+          setActiveNavTab(tab);
+        }}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
-        {/* ── 2. Top KPI Cards ─────────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          <MetricCard
-            title="Total Revenue At Risk"
-            value={`₹${(summary.financials.totalAtRiskInPaise / 100).toLocaleString("en-IN")}`}
-            subtitle={`${summary.counts.total} failed payment transactions`}
-            icon={ShieldAlert}
-            variant="danger"
-          />
-
-          <MetricCard
-            title="Recovered Revenue"
-            value={`₹${(summary.financials.totalRecoveredInPaise / 100).toLocaleString("en-IN")}`}
-            subtitle={`${summary.counts.recovered} successful recoveries`}
-            icon={DollarSign}
-            variant="emerald"
-            trend="+68.0% Recov"
-          />
-
-          <MetricCard
-            title="Active Recovery In-Flight"
-            value={summary.counts.active}
-            subtitle={`${summary.counts.halted} halted • ${summary.counts.escalated} escalated`}
-            icon={Activity}
-            variant="blue"
-          />
-
-          <MetricCard
-            title="AI Agent Cost Efficiency"
-            value={`₹${(summary.aiMetrics.totalCostInPaise / 100).toFixed(2)}`}
-            subtitle={`${summary.aiMetrics.totalExecutions} decisions • ${summary.aiMetrics.policyBlockedCount} blocked`}
-            icon={Bot}
-            variant="purple"
-            trend={`${summary.aiMetrics.avgLatencyMs}ms avg`}
-          />
-        </div>
-
-        {/* ── 3. Simulation Cockpit ──────────────────────────────────────── */}
-        <SimulationControls onSimulationCompleted={loadData} />
-
-        {/* ── 4. Visual Charts (Recharts) ─────────────────────────────────── */}
-        <RecoveryCharts timeseries={timeseries} categories={categories} />
-
-        {/* ── 5. Workflows Table ───────────────────────────────────────────── */}
-        <WorkflowTable
-          workflows={workflows}
-          selectedStage={selectedStage}
-          onSelectStage={setSelectedStage}
-          onInspectWorkflow={handleInspectWorkflow}
+      {/* ── Main Application Workspace ── */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <Header
+          activeTab={activeNavTab}
+          caseDetailWorkflow={caseDetailWorkflow}
+          onNavigateTab={(tab) => {
+            if (tab !== "case-detail") setCaseDetailWorkflow(null);
+            if (tab === "overview") {
+              setSelectedStage("");
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }
+            setActiveNavTab(tab);
+          }}
+          onOpenBot={() => handleOpenBot()}
         />
-      </main>
 
-      {/* ── 5. Slide-Over Workflow Inspector Drawer ───────────────────────── */}
-      <WorkflowDrawer
-        workflow={selectedWorkflow}
-        onClose={() => setSelectedWorkflow(null)}
-        onRefresh={loadData}
-        onOpenBotForCustomer={handleOpenBot}
-      />
+        {/* M15: Degraded connection banner — only shown when ALL API calls fail */}
+        {fetchError && (
+          <div
+            role="alert"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              padding: "9px 20px",
+              backgroundColor: "#fef3c7",
+              borderBottom: "1px solid #fcd34d",
+              fontSize: 13,
+              color: "#92400e",
+              flexShrink: 0,
+            }}
+          >
+            <span>⚠️ {fetchError}</span>
+            <button
+              onClick={() => loadData()}
+              style={{
+                padding: "3px 12px", borderRadius: 6, border: "1px solid #fcd34d",
+                backgroundColor: "transparent", color: "#92400e", fontSize: 12,
+                fontWeight: 600, cursor: "pointer", flexShrink: 0,
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
-      {/* ── 6. Hinglish Bot WhatsApp Simulator Modal ──────────────────────── */}
+        {/* M16: silent polling indicator — tiny amber dot in top-right, no spinner flash */}
+        {isPolling && !isLoading && (
+          <div
+            aria-hidden="true"
+            title="Syncing in background…"
+            style={{
+              position: "fixed", top: 10, right: 12, zIndex: 100,
+              width: 7, height: 7, borderRadius: "50%",
+              backgroundColor: "#f59e0b",
+              animation: "ds-pulse 1.5s ease-in-out infinite",
+            }}
+          />
+        )}
+
+        {/* ── Dynamic Workspace Views ── */}
+        {activeNavTab === "demo" ? (
+          <DemoStore
+            onRecoveryTriggered={() => {
+              loadData();
+              setActiveNavTab("overview");
+            }}
+          />
+        ) : activeNavTab === "communications" ? (
+          <CommunicationsHub
+            onOpenFullCase={handleOpenFullCase}
+            onOpenBotForCustomer={handleOpenBot}
+          />
+        ) : activeNavTab === "case-detail" && caseDetailWorkflow ? (
+          <CaseDetailPage
+            workflow={caseDetailWorkflow}
+            onBack={() => {
+              setCaseDetailWorkflow(null);
+              setActiveNavTab("overview");
+            }}
+            onRefresh={async () => {
+              loadData();
+              if (caseDetailWorkflow) {
+                try {
+                  const updated = await fetchWorkflowDetails(caseDetailWorkflow.id);
+                  setCaseDetailWorkflow(updated);
+                } catch {
+                  // Keep existing
+                }
+              }
+            }}
+            onOpenBotForCustomer={handleOpenBot}
+          />
+        ) : (
+          <main style={{ flex: 1, maxWidth: 1320, width: "100%", margin: "0 auto", padding: "20px 28px 40px" }}>
+            {/* ── Page Header: Compact & High Density ── */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                <div>
+                  <span className="ds-label" style={{ fontSize: 10.5, letterSpacing: "0.06em", color: "var(--text-faint)" }}>
+                    REVENUE INTELLIGENCE
+                  </span>
+                  <h1 style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.025em", color: "var(--text-strong)", margin: "2px 0 0" }}>
+                    Merchant Command Center
+                  </h1>
+                </div>
+                <span style={{ fontSize: 12.5, color: "var(--text-soft)" }}>
+                  Settlement cycle & autonomous payment failure recovery
+                </span>
+              </div>
+            </div>
+
+            {/* ── Compact Bento KPI Metric Grid ── */}
+            <div id="kpi-cards-grid" className="grid grid-cols-2 lg:grid-cols-3" style={{ gap: 12, marginBottom: 16 }}>
+              <MetricCard
+                title="Revenue At Risk"
+                value={`₹${Math.round(summary.financials.totalAtRiskInPaise / 100).toLocaleString("en-IN")}`}
+                subtitle={`${summary.counts.total} failed payments`}
+                icon={ShieldAlert}
+                variant="danger"
+                isActive={activeKpiTile === "at_risk"}
+                onClick={() => {
+                  if (activeKpiTile === "at_risk") {
+                    setActiveKpiTile(null);
+                    setSelectedStage("");
+                  } else {
+                    setActiveKpiTile("at_risk");
+                    setSelectedStage("");
+                    document.getElementById("workflow-ledger-section")?.scrollIntoView({ behavior: "smooth" });
+                  }
+                }}
+              />
+              <MetricCard
+                title="Revenue Recovered"
+                value={`₹${Math.round(summary.financials.totalRecoveredInPaise / 100).toLocaleString("en-IN")}`}
+                subtitle={`${summary.counts.recovered} recoveries`}
+                icon={DollarSign}
+                variant="emerald"
+                trend={`+${summary.financials.recoveryRatePercent.toFixed(1)}%`}
+                isActive={activeKpiTile === "recovered"}
+                onClick={() => {
+                  if (activeKpiTile === "recovered") {
+                    setActiveKpiTile(null);
+                    setSelectedStage("");
+                  } else {
+                    setActiveKpiTile("recovered");
+                    setSelectedStage("RECOVERED");
+                    document.getElementById("workflow-ledger-section")?.scrollIntoView({ behavior: "smooth" });
+                  }
+                }}
+              />
+              <MetricCard
+                title="Active In-Flight"
+                value={summary.counts.active}
+                subtitle={`${summary.counts.halted} halted · ${summary.counts.escalated} escalated`}
+                icon={Activity}
+                variant="blue"
+                isActive={activeKpiTile === "in_flight"}
+                onClick={() => {
+                  if (activeKpiTile === "in_flight") {
+                    setActiveKpiTile(null);
+                    setSelectedStage("");
+                  } else {
+                    setActiveKpiTile("in_flight");
+                    setSelectedStage("ACTIVE");
+                    document.getElementById("workflow-ledger-section")?.scrollIntoView({ behavior: "smooth" });
+                  }
+                }}
+              />
+            </div>
+
+            {/* ── Integrated Simulation Control Ribbon ── */}
+            <div id="simulation-cockpit-section" style={{ marginBottom: 16 }}>
+              <SimulationControls onSimulationCompleted={loadData} />
+            </div>
+
+            {/* ── 4-Stage Recovery Funnel Waterfall ── */}
+            <RecoveryFunnel
+              funnelData={funnelData}
+              selectedStage={selectedStage}
+              onSelectStage={setSelectedStage}
+            />
+
+            {/* ── Visual Analytics Grid ── */}
+            <div style={{ marginBottom: 16 }}>
+              <RecoveryCharts timeseries={timeseries} categories={categories} />
+            </div>
+
+            {/* ── Bounded Workflow Ledger Table ── */}
+            <div id="workflow-ledger-section">
+              <WorkflowTable
+                workflows={workflows}
+                selectedStage={selectedStage}
+                onSelectStage={setSelectedStage}
+                onInspectWorkflow={handleInspectWorkflow}
+              />
+            </div>
+          </main>
+        )}
+
+        {/* ── Footer ── */}
+        <footer
+          style={{
+            borderTop: "1px solid var(--border)",
+            padding: "14px 28px",
+            textAlign: "center",
+            fontSize: 11.5,
+            color: "var(--text-faint)",
+            backgroundColor: "var(--bg-surface)",
+          }}
+        >
+          RevRec Autonomous Revenue Recovery Engine · Razorpay AI Track
+        </footer>
+      </div>
+
+      {/* ── Slide-Over Inspector Drawer & Modals ── */}
+      {activeNavTab !== "case-detail" && (
+        <WorkflowDrawer
+          workflow={drawerWorkflow}
+          onClose={() => setDrawerWorkflow(null)}
+          onRefresh={loadData}
+          onOpenBotForCustomer={handleOpenBot}
+          onOpenFullCase={handleOpenFullCase}
+        />
+      )}
       <HinglishBotSimulator
         isOpen={isBotOpen}
         onClose={() => setIsBotOpen(false)}
         initialCustomerId={botCustomerId}
         {...(botWorkflowId ? { initialWorkflowId: botWorkflowId } : {})}
+        onRefresh={loadData}
       />
-
-      {/* ── 7. Footer ────────────────────────────────────────────────────── */}
-      <footer className="border-t border-gray-900 py-6 text-center text-xs text-gray-500 font-mono">
-        RevRec Autonomous Revenue Recovery Engine • Razorpay AI Track Project • Built with Node.js, Prisma, BullMQ, Redis, React 18, Tailwind CSS, Recharts
-      </footer>
     </div>
   );
 }

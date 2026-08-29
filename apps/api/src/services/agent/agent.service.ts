@@ -27,7 +27,7 @@ export const AgentDecisionSchema = z.object({
   toolInput: z.discriminatedUnion("tool", [
     z.object({
       tool: z.literal(AgentToolName.RETRY_PAYMENT),
-      delayMinutes: z.number().int().positive(),
+      delayMinutes: z.number().int().nonnegative(), // M5 fix: 0 = immediate retry (was .positive() which rejected 0)
       reason: z.string(),
     }),
     z.object({
@@ -116,7 +116,7 @@ export async function runAgentDecision(workflowId: string): Promise<AgentRunResu
   const userPrompt = `
 EVALUATE THIS RECOVERY CASE:
 - Workflow ID: ${workflow.id}
-- Amount At Risk: ₹${workflow.amountAtRiskInPaise / 100} (${workflow.amountAtRiskInPaise} paise)
+- Amount At Risk: ₹${Number(workflow.amountAtRiskInPaise) / 100} (${workflow.amountAtRiskInPaise} paise)
 - Current Stage: ${workflow.stage}
 - Retry Count So Far: ${workflow.retryCount}
 - Outreach Count So Far: ${workflow.outreachCount}
@@ -124,7 +124,7 @@ EVALUATE THIS RECOVERY CASE:
 CUSTOMER CONTEXT:
 - Name: ${workflow.customer.name}
 - Risk Score: ${workflow.customer.riskScore}/100 (Higher = Higher Risk)
-- Lifetime Value (LTV): ₹${workflow.customer.ltvInPaise / 100}
+- Lifetime Value (LTV): ₹${Number(workflow.customer.ltvInPaise) / 100}
 - Preferred Channel: ${workflow.customer.preferredChannel}
 
 FAILURE CONTEXT:
@@ -175,7 +175,8 @@ Determine the single best, compliant action to recover this revenue. Return stru
   const policyCheck = await validateAgentAction(decision.toolInput, {
     customerId: workflow.customerId,
     workflowId: workflow.id,
-    amountAtRiskInPaise: workflow.amountAtRiskInPaise,
+    // Cast BigInt → number: DunningContext interface uses number; safe since paise fit in MAX_SAFE_INTEGER
+    amountAtRiskInPaise: Number(workflow.amountAtRiskInPaise),
     declineCategory: category,
   });
 

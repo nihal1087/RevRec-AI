@@ -1,67 +1,159 @@
 import React from "react";
-import { ShieldCheck, RefreshCw, Zap, Bot } from "lucide-react";
+import { Bot, ChevronRight } from "lucide-react";
+import { PillBadge } from "./PillBadge";
+import { WorkflowItem } from "../api/client";
 
 interface HeaderProps {
-  onRefresh: () => void;
-  isLoading: boolean;
   onOpenBot: () => void;
+  activeTab?: string;
+  caseDetailWorkflow?: WorkflowItem | null;
+  onNavigateTab?: (tab: string) => void;
 }
 
-export function Header({ onRefresh, isLoading, onOpenBot }: HeaderProps): React.JSX.Element {
+export function Header({
+  onOpenBot,
+  activeTab = "overview",
+  caseDetailWorkflow,
+  onNavigateTab,
+}: HeaderProps): React.JSX.Element {
+  const handleGoOverview = () => {
+    onNavigateTab?.("overview");
+  };
+
   return (
-    <header className="border-b border-gray-800 bg-gray-900/60 backdrop-blur-md sticky top-0 z-30 px-6 py-4">
-      <div className="max-w-7xl mx-auto flex items-center justify-between">
-        {/* Brand & Track */}
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center shadow-lg shadow-emerald-950">
-            <Zap className="w-6 h-6 text-white" />
-          </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="text-xl font-bold text-white tracking-tight">RevRec</h1>
-              <span className="bg-emerald-950 text-emerald-400 text-xs px-2.5 py-0.5 rounded-full border border-emerald-800 font-mono">
-                v1.0 • Autonomous Engine
-              </span>
-            </div>
-            <p className="text-xs text-gray-400">
-              Razorpay AI Internship — AI Revenue Recovery Track
-            </p>
-          </div>
-        </div>
+    <header
+      style={{
+        position: "sticky",
+        top: 0,
+        zIndex: 20,
+        backgroundColor: "var(--bg-surface)",
+        borderBottom: "1px solid var(--border)",
+        height: 64,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "0 28px",
+        gap: 16,
+      }}
+    >
+      {/* ── Left: Dynamic Interactive Breadcrumbs ── */}
+      <nav
+        aria-label="Breadcrumb"
+        style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}
+      >
+        <button
+          type="button"
+          onClick={handleGoOverview}
+          style={{
+            background: "none",
+            border: "none",
+            padding: "2px 6px",
+            margin: "-2px -6px",
+            borderRadius: 4,
+            cursor: "pointer",
+            color: "var(--text-soft)",
+            fontWeight: 500,
+            fontSize: 13,
+            transition: "all 0.15s ease",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = "var(--text-strong)";
+            e.currentTarget.style.backgroundColor = "var(--bg-subtle)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = "var(--text-soft)";
+            e.currentTarget.style.backgroundColor = "transparent";
+          }}
+        >
+          Merchant Workspace
+        </button>
 
-        {/* Live System Beacon & Actions */}
-        <div className="flex items-center space-x-4">
-          <div className="hidden md:flex items-center space-x-2 bg-gray-950 border border-gray-800 px-3 py-1.5 rounded-lg text-xs">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+        <ChevronRight size={13} style={{ color: "var(--text-faint)", flexShrink: 0 }} />
+
+        {activeTab === "overview" && (
+          <span style={{ color: "var(--text-strong)", fontWeight: 600 }}>Command Center</span>
+        )}
+
+        {activeTab === "workflows" && (
+          <span style={{ color: "var(--text-strong)", fontWeight: 600 }}>Recovery Ledger</span>
+        )}
+
+        {activeTab === "demo" && (
+          <span style={{ color: "var(--text-strong)", fontWeight: 600 }}>Live Demo Store</span>
+        )}
+
+        {activeTab === "communications" && (
+          <span style={{ color: "var(--text-strong)", fontWeight: 600 }}>Communications Hub</span>
+        )}
+
+        {activeTab === "simulation" && (
+          <span style={{ color: "var(--text-strong)", fontWeight: 600 }}>Simulation Cockpit</span>
+        )}
+
+        {activeTab === "case-detail" && (
+          <>
+            <button
+              type="button"
+              onClick={handleGoOverview}
+              style={{
+                background: "none",
+                border: "none",
+                padding: "2px 6px",
+                margin: "-2px -6px",
+                borderRadius: 4,
+                cursor: "pointer",
+                color: "var(--text-soft)",
+                fontWeight: 500,
+                fontSize: 13,
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "var(--text-strong)";
+                e.currentTarget.style.backgroundColor = "var(--bg-subtle)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--text-soft)";
+                e.currentTarget.style.backgroundColor = "transparent";
+              }}
+            >
+              Recovery Ledger
+            </button>
+            <ChevronRight size={13} style={{ color: "var(--text-faint)", flexShrink: 0 }} />
+            <span style={{ color: "var(--text-strong)", fontWeight: 600, fontFamily: "monospace" }}>
+              Case #{caseDetailWorkflow?.id.slice(-8) ?? "Detail"}
             </span>
-            <span className="text-gray-300 font-medium">BullMQ & State Ledger Active</span>
-          </div>
+            {caseDetailWorkflow && (
+              <PillBadge
+                variant={
+                  caseDetailWorkflow.stage === "RECOVERED"
+                    ? "green"
+                    : caseDetailWorkflow.stage === "HALTED"
+                    ? "neutral"
+                    : "blue"
+                }
+                style={{ marginLeft: 4 }}
+              >
+                {caseDetailWorkflow.stage}
+              </PillBadge>
+            )}
+          </>
+        )}
+      </nav>
 
-          <div className="hidden md:flex items-center space-x-2 bg-gray-950 border border-gray-800 px-3 py-1.5 rounded-lg text-xs">
-            <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-            <span className="text-gray-300">RBI & TRAI Compliance Guard On</span>
-          </div>
-
-          <button
-            onClick={onOpenBot}
-            className="flex items-center space-x-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-md transition"
-          >
-            <Bot className="w-4 h-4" />
-            <span>Hinglish Bot Simulator</span>
-          </button>
-
-          <button
-            onClick={onRefresh}
-            disabled={isLoading}
-            className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition disabled:opacity-50"
-            title="Refresh Data"
-          >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
-          </button>
-        </div>
+      {/* ── Right: Primary Quick Action ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <button
+          type="button"
+          className="ds-btn ds-btn-primary"
+          onClick={onOpenBot}
+          style={{ height: 32, padding: "0 13px", fontSize: 12.5 }}
+        >
+          <Bot size={14} />
+          <span>Hinglish AI Bot</span>
+        </button>
       </div>
     </header>
   );
 }
+
+export default Header;

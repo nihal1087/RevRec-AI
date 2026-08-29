@@ -165,7 +165,10 @@ export function calculateNextRetrySchedule(context: RetryContext): RetrySchedule
   // 4. Calculate candidate date and shift past any Indian banking maintenance hours
   const candidateDate = new Date(failureTimestamp.getTime() + delaySeconds * 1000);
   const finalScheduledAt = shiftPastBankMaintenance(candidateDate, bankCode);
-  const finalDelaySeconds = Math.max(1, Math.round((finalScheduledAt.getTime() - failureTimestamp.getTime()) / 1000));
+  // M1 fix: compute delay relative to NOW (not failureTimestamp) so BullMQ schedules
+  // the job correctly even when processing historical/batch records where failureTimestamp
+  // could be hours or days in the past.
+  const finalDelaySeconds = Math.max(0, Math.round((finalScheduledAt.getTime() - Date.now()) / 1000));
 
   return {
     shouldRetry: true,

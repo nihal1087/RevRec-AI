@@ -100,8 +100,12 @@ export function validateWebhookSignature(
   let signaturesMatch = false;
   if (receivedBuffer.length === computedBuffer.length) {
     signaturesMatch = crypto.timingSafeEqual(receivedBuffer, computedBuffer);
+  } else {
+    // M8 fix: run a dummy constant-time comparison when lengths differ so that
+    // fast rejection doesn't reveal signature length via timing side-channel.
+    crypto.timingSafeEqual(computedBuffer, computedBuffer);
+    signaturesMatch = false;
   }
-  // If lengths differ, signaturesMatch stays false — deliberate
 
   if (!signaturesMatch) {
     console.warn(

@@ -22,9 +22,9 @@ router.get("/", async (req: Request, res: Response) => {
   try {
     const stage = req.query["stage"] as RecoveryStage | undefined;
     const customerId = req.query["customerId"] as string | undefined;
-    const rawLimit = parseInt((req.query["limit"] as string) ?? "20", 10);
+    const rawLimit = parseInt((req.query["limit"] as string) ?? "50", 10);
     const rawPage = parseInt((req.query["page"] as string) ?? "1", 10);
-    const limit = Math.min(100, Math.max(1, Number.isNaN(rawLimit) ? 20 : rawLimit));
+    const limit = Math.min(500, Math.max(1, Number.isNaN(rawLimit) ? 50 : rawLimit));
     const page = Math.max(1, Number.isNaN(rawPage) ? 1 : rawPage);
     const skip = (page - 1) * limit;
 
@@ -42,7 +42,14 @@ router.get("/", async (req: Request, res: Response) => {
         orderBy: { createdAt: "desc" },
         include: {
           customer: {
-            select: { id: true, externalId: true, name: true, email: true, phone: true, riskScore: true },
+            select: {
+              id: true,
+              externalId: true,
+              name: true,
+              email: true,
+              phone: true,
+              riskScore: true,
+            },
           },
           payment: {
             select: { id: true, externalId: true, status: true, gatewayErrorCode: true, declineCategory: true },

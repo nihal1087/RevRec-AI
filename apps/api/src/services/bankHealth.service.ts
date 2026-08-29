@@ -97,17 +97,24 @@ export function shiftPastBankMaintenance(candidateDate: Date, bankCode: string =
   // If candidate time lands in nightly maintenance window, push to 08:30 AM IST of the same or next morning
   if (isBankInMaintenanceWindow(adjusted, bankCode)) {
     const istOffsetMs = 5.5 * 60 * 60 * 1000;
-    const istDate = new Date(adjusted.getTime() + istOffsetMs);
-    
-    // Set to 08:30 AM IST (which is 03:00 AM UTC = IST 05:30 offset minus 08:30)
-    istDate.setUTCHours(3, 0, 0, 0);
+    // Shift to IST time domain so we can work with IST hours
+    const istTime = new Date(adjusted.getTime() + istOffsetMs);
 
-    // If that time was earlier today in UTC, move to tomorrow
-    if (istDate.getTime() <= adjusted.getTime()) {
-      istDate.setUTCDate(istDate.getUTCDate() + 1);
+    // Set to 08:30 AM IST — this is UTC hour 8, minute 30 (we then subtract the offset)
+    // Using setUTCHours on istTime (which is already offset to IST) correctly sets the IST hour.
+    istTime.setUTCHours(8, 30, 0, 0);
+
+    // Convert back to UTC
+    let targetUtc = new Date(istTime.getTime() - istOffsetMs);
+
+    // If 08:30 IST today is already in the past relative to the adjusted time,
+    // move to 08:30 IST the next morning
+    if (targetUtc.getTime() <= adjusted.getTime()) {
+      istTime.setUTCDate(istTime.getUTCDate() + 1);
+      targetUtc = new Date(istTime.getTime() - istOffsetMs);
     }
 
-    adjusted = new Date(istDate.getTime() - istOffsetMs);
+    adjusted = targetUtc;
   }
 
   return adjusted;

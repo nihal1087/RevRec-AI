@@ -6,19 +6,23 @@
  */
 
 import { PrismaClient, PaymentStatus, DeclineCategory, RecoveryStage, RecoveryMethod, DunningChannel, PromiseStatus, AuditEventType } from "@prisma/client";
+import { AgentToolName } from "@revrec/types";
 
 const prisma = new PrismaClient();
 
 async function main() {
   console.log("[Seed] Starting RevRec database seeding...");
 
-  // Clean existing data
+  // Clean existing data (H8 fix: delete in FK-safe order — subscriptions and invoices
+  // must be deleted before customers to avoid foreign key constraint violations on re-seed)
   await prisma.auditLog.deleteMany();
   await prisma.agentExecution.deleteMany();
   await prisma.promiseToPay.deleteMany();
   await prisma.dunningContact.deleteMany();
   await prisma.recoveryWorkflow.deleteMany();
   await prisma.payment.deleteMany();
+  await prisma.subscription.deleteMany();
+  await prisma.invoice.deleteMany();
   await prisma.customer.deleteMany();
 
   // 1. Create Realistic Indian Customers
@@ -42,7 +46,7 @@ async function main() {
         email: c.email,
         phone: c.phone,
         riskScore: c.riskScore,
-        ltvInPaise: c.ltv,
+        ltvInPaise: BigInt(c.ltv),
         preferredChannel: DunningChannel.WHATSAPP,
       },
     });
@@ -185,15 +189,15 @@ async function main() {
       data: {
         workflowId: workflow.id,
         reasoning: `Autonomous RCA categorized failure as ${s.cat} (${s.code}). Selected optimal bounded recovery tool.`,
-        selectedTool: s.stage === RecoveryStage.HALTED ? "HALT_DUNNING" : "RETRY_PAYMENT",
-        toolInput: { tool: s.stage === RecoveryStage.HALTED ? "HALT_DUNNING" : "RETRY_PAYMENT" },
+        selectedTool: s.stage === RecoveryStage.HALTED ? AgentToolName.HALT_DUNNING : AgentToolName.RETRY_PAYMENT,
+        toolInput: { tool: s.stage === RecoveryStage.HALTED ? AgentToolName.HALT_DUNNING : AgentToolName.RETRY_PAYMENT },
         confidenceScore: 0.94,
         policyCheckPassed: true,
         policyCheckDetails: "Passed all RBI and TRAI regulatory compliance bounds.",
         executionStatus: "EXECUTED",
         llmLatencyMs: 220 + (i * 15),
         llmTokensUsed: 310,
-        estimatedCostInPaise: 1,
+        estimatedCostInPaise: 0.23,
       },
     });
 
@@ -204,7 +208,7 @@ async function main() {
         workflowId: workflow.id,
         paymentId: payment.id,
         customerId: cust.id,
-        actorType: "WEBHOOK_INGESTION",
+        actorType: "WEBHOOK_PROCESSOR", // M14 fix: correct enum value (was "WEBHOOK_INGESTION")
         actorId: "razorpay-webhook-receiver",
         outcome: "SUCCESS",
         amountInPaise: s.amountPaise,

@@ -71,6 +71,8 @@ export interface WorkflowItem {
     email: string;
     phone: string;
     riskScore: number;
+    riskTier?: "LOW" | "MEDIUM" | "HIGH" | string;
+    paymentHistoryScore?: number;
   };
   payment: {
     id: string;
@@ -88,6 +90,23 @@ export interface WorkflowItem {
     amountInPaise?: number | null;
     createdAt: string;
     payload?: Record<string, unknown>;
+  }>;
+  dunningContacts?: Array<{
+    id: string;
+    channel: string;
+    templateName: string;
+    messagePayload: string;
+    status: string;
+    sentAt: string;
+    deliveredAt?: string | null;
+  }>;
+  promiseToPays?: Array<{
+    id: string;
+    promisedAmountInPaise: number;
+    promisedAt: string;
+    status: string;
+    confidenceScore: number;
+    createdAt: string;
   }>;
   agentExecutions?: Array<{
     id: string;
@@ -126,7 +145,7 @@ export async function fetchCategoryAnalytics(): Promise<CategoryAnalytics> {
 }
 
 export async function fetchWorkflows(stage?: string): Promise<WorkflowItem[]> {
-  const url = stage ? `${API_BASE}/api/recovery?stage=${stage}&limit=50` : `${API_BASE}/api/recovery?limit=50`;
+  const url = stage ? `${API_BASE}/api/recovery?stage=${stage}&limit=500` : `${API_BASE}/api/recovery?limit=500`;
   const res = await fetch(url);
   if (!res.ok) throw new Error("Failed to fetch workflows");
   const json = await res.json();
@@ -233,6 +252,94 @@ export async function fetchBenchmarkReport(): Promise<BenchmarkReport> {
 }
 
 export async function resetDemoData(): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/simulate/reset`, { method: "POST" });
+  const res = await fetch(`${API_BASE}/api/simulate/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm: true }),
+  });
   if (!res.ok) throw new Error("Reset demo data failed");
 }
+
+export interface CommunicationItem {
+  id: string;
+  channel: string;
+  templateName: string;
+  messagePayload: string;
+  status: "SENT" | "DELIVERED" | "READ" | "CLICKED" | "FAILED";
+  sentAt: string;
+  deliveredAt?: string | null;
+  openedAt?: string | null;
+  clickedAt?: string | null;
+  customerResponse?: string | null;
+  customer: {
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+    riskScore: number;
+    riskTier?: string;
+  };
+  workflow?: {
+    id: string;
+    stage: string;
+    amountAtRiskInPaise: number;
+  };
+}
+
+export interface CommunicationsResponse {
+  success: boolean;
+  data: CommunicationItem[];
+  counts?: {
+    all: number;
+    whatsapp: number;
+    sms: number;
+    email: number;
+    hinglish_voice: number;
+  };
+  metrics: {
+    totalDispatches: number;
+    whatsappReadRatePercent: number;
+    smsDeliveryRatePercent: number;
+    emailClickRatePercent: number;
+    totalRecoveredViaOutreachInPaise: number;
+  };
+}
+
+export async function fetchCommunications(channel?: string, search?: string): Promise<CommunicationsResponse> {
+  const params = new URLSearchParams();
+  if (channel && channel !== "ALL") params.append("channel", channel);
+  if (search) params.append("search", search);
+  const res = await fetch(`${API_BASE}/api/communications?${params.toString()}`);
+  if (!res.ok) throw new Error("Failed to fetch communications");
+  return res.json();
+}
+
+export interface FunnelStageItem {
+  id: string;
+  stepNumber: number;
+  title: string;
+  subtitle: string;
+  count: number;
+  amountInPaise: number;
+  conversionFromPrevious: number;
+  dropoffCount: number;
+  dropoffReason: string;
+  color: string;
+  stageFilter: string;
+}
+
+export interface RecoveryFunnelData {
+  stages: FunnelStageItem[];
+  overallConversionRatePercent: number;
+  totalAtRiskInPaise: number;
+  totalRecoveredInPaise: number;
+}
+
+export async function fetchRecoveryFunnel(): Promise<RecoveryFunnelData> {
+  const res = await fetch(`${API_BASE}/api/analytics/funnel`);
+  if (!res.ok) throw new Error("Failed to fetch recovery funnel");
+  const json = await res.json();
+  return json.data;
+}
+
+

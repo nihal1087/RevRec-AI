@@ -32,13 +32,7 @@ function createRedisConnection(
   clientName: string,
   bullmqMode: boolean = false
 ): Redis {
-  const client = new Redis({
-    host: process.env["REDIS_HOST"] ?? "localhost",
-    port: parseInt(process.env["REDIS_PORT"] ?? "6379", 10),
-    // Only set password if it's a non-empty string
-    ...(process.env["REDIS_PASSWORD"]
-      ? { password: process.env["REDIS_PASSWORD"] }
-      : {}),
+  const commonOptions = {
     // BullMQ REQUIRES these two options — do not remove them
     maxRetriesPerRequest: bullmqMode ? null : 3,
     enableReadyCheck: false,
@@ -52,7 +46,23 @@ function createRedisConnection(
       );
       return delay;
     },
-  });
+  };
+
+  const redisUrl = process.env["REDIS_URL"];
+  const client = redisUrl
+    ? new Redis(redisUrl, {
+        ...commonOptions,
+        ...(process.env["REDIS_PASSWORD"] ? { password: process.env["REDIS_PASSWORD"] } : {}),
+      })
+    : new Redis({
+        host: process.env["REDIS_HOST"] ?? "localhost",
+        port: parseInt(process.env["REDIS_PORT"] ?? "6379", 10),
+        // Only set password if it's a non-empty string
+        ...(process.env["REDIS_PASSWORD"]
+          ? { password: process.env["REDIS_PASSWORD"] }
+          : {}),
+        ...commonOptions,
+      });
 
   client.on("connect", () => {
     console.log(`[Redis:${clientName}] ✅ Connected to Redis`);
@@ -100,11 +110,25 @@ export function getBullMQRedisClient(): Redis {
 /**
  * Gracefully close all Redis connections.
  * Called during process shutdown to allow in-flight commands to complete.
+ * L3 fix: wrap each quit() in a 3-second timeout that falls back to disconnect()
+ * so a hung Redis connection doesn't block the process from exiting.
  */
 export async function closeAllRedisConnections(): Promise<void> {
-  const closePromises: Promise<string>[] = [];
-  if (generalRedisInstance) closePromises.push(generalRedisInstance.quit());
-  if (bullmqRedisInstance) closePromises.push(bullmqRedisInstance.quit());
+  const gracefulQuit = (client: Redis, name: string): Promise<void> =>
+    Promise.race([
+      client.quit().then(() => undefined),
+      new Promise<void>((resolve) =>
+        setTimeout(() => {
+          console.warn(`[Redis:${name}] quit() timed out — forcing disconnect()`);
+          client.disconnect();
+          resolve();
+        }, 3000)
+      ),
+    ]);
+
+  const closePromises: Promise<void>[] = [];
+  if (generalRedisInstance) closePromises.push(gracefulQuit(generalRedisInstance, "general"));
+  if (bullmqRedisInstance)  closePromises.push(gracefulQuit(bullmqRedisInstance, "bullmq"));
   await Promise.all(closePromises);
   console.log("[Redis] All connections closed gracefully");
 }

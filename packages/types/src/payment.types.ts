@@ -7,7 +7,7 @@
  * free of persistence concerns (Clean Architecture's Domain layer).
  */
 
-import { DeclineCategory, PaymentStatus } from "./enums";
+import { DeclineCategory, PaymentStatus, RiskTier } from "./enums";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CORE MONEY TYPE
@@ -38,6 +38,8 @@ export interface Customer {
   readonly email: string;
   readonly phone: string;           // E.164 format: +919876543210
   readonly riskScore: number;       // 0-100: higher = higher default risk
+  readonly riskTier?: RiskTier | string; // LOW / MEDIUM / HIGH
+  readonly paymentHistoryScore?: number; // 0-100: past payment reliability
   readonly ltv: MoneyAmount;        // Lifetime value — informs recovery investment
   readonly preferredChannel: string; // WhatsApp / SMS / Email
   readonly createdAt: Date;

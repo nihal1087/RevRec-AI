@@ -146,3 +146,14 @@ export enum HinglishIntent {
   PAYMENT_INTENT = "PAYMENT_INTENT",       // "Link bhejo, abhi pay karta hoon"
   NEEDS_CLARIFICATION = "NEEDS_CLARIFICATION",
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CUSTOMER RISK DOMAIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+export enum RiskTier {
+  LOW = "LOW",       // High recovery probability (85-95%)
+  MEDIUM = "MEDIUM", // Moderate recovery probability (60-80%)
+  HIGH = "HIGH",     // Low recovery probability (20-50%) / Default risk
+}
+

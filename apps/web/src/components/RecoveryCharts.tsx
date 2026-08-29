@@ -18,111 +18,177 @@ interface RecoveryChartsProps {
   categories: CategoryAnalytics | null;
 }
 
-export function RecoveryCharts({ timeseries, categories }: RecoveryChartsProps): React.JSX.Element {
+const tooltipStyle: React.CSSProperties = {
+  backgroundColor: "#ffffff",
+  border: "1px solid var(--border)",
+  borderRadius: "8px",
+  fontSize: "12px",
+  boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+  color: "var(--text-strong)",
+  padding: "8px 12px",
+};
+
+function formatCategoryLabel(raw: string): string {
+  if (!raw) return "Unknown";
+  const upper = raw.toUpperCase();
+  if (upper.includes("SOFT")) return "Soft Delays";
+  if (upper.includes("NETWORK")) return "Bank Network";
+  if (upper.includes("INTENT")) return "Intent Drop";
+  if (upper.includes("MANDATE")) return "Mandate Fail";
+  if (upper.includes("HARD")) return "Hard Decline";
+  return raw.split(" ")[0] || raw;
+}
+
+export function RecoveryCharts({
+  timeseries,
+  categories,
+}: RecoveryChartsProps): React.JSX.Element {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 my-8">
-      {/* ── 1. Area Chart: 14-Day Recovery Trend ─────────────────────────────── */}
-      <div className="lg:col-span-2 bg-gray-900/80 border border-gray-800 rounded-2xl p-5 shadow-xl">
-        <div className="flex items-center justify-between mb-4">
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr",
+        gap: "20px",
+      }}
+      className="recovery-charts-grid"
+    >
+      <style>{`
+        @media (min-width: 1024px) {
+          .recovery-charts-grid { grid-template-columns: 1.6fr 1fr !important; }
+        }
+      `}</style>
+
+      {/* ── 1. Area Chart: 14-Day Trajectory ── */}
+      <div className="ds-card" style={{ padding: "18px 20px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "16px",
+          }}
+        >
           <div>
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-              14-Day Revenue Recovery Trajectory
-            </h3>
-            <p className="text-xs text-gray-400">
-              Daily At-Risk vs Recovered (Auto-Retry + Conversational Outreach)
+            <span className="ds-section-title">14-Day Recovery Trajectory</span>
+            <p style={{ fontSize: 12, color: "var(--text-soft)", margin: "2px 0 0" }}>
+              Daily at-risk volume vs recovered revenue
             </p>
           </div>
-          <div className="flex items-center space-x-3 text-xs">
-            <span className="flex items-center gap-1.5 text-gray-400">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span> At Risk
+
+          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--text-soft)" }}>
+              <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: "#ef4444" }} />
+              At Risk
             </span>
-            <span className="flex items-center gap-1.5 text-gray-400">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Recovered
+            <span style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--text-soft)" }}>
+              <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: "#059669" }} />
+              Recovered
             </span>
           </div>
         </div>
 
-        <div className="h-64 w-full">
+        <div style={{ height: "210px", width: "100%" }}>
+          {timeseries.length === 0 ? (
+            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-faint)", fontSize: 12 }}>
+              No timeseries data available yet
+            </div>
+          ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={timeseries} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-              <defs>
-                <linearGradient id="colorAtRisk" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4} />
-                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0.0} />
-                </linearGradient>
-                <linearGradient id="colorRecovered" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#22c55e" stopOpacity={0.4} />
-                  <stop offset="95%" stopColor="#22c55e" stopOpacity={0.0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-              <XAxis dataKey="displayDate" stroke="#6b7280" fontSize={11} tickLine={false} />
-              <YAxis
-                stroke="#6b7280"
-                fontSize={11}
+            <AreaChart data={timeseries} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f5" vertical={false} />
+              <XAxis
+                dataKey="displayDate"
+                stroke="#d1d5db"
+                tick={{ fill: "#9ca3af", fontSize: 11 }}
                 tickLine={false}
-                tickFormatter={(val) => `₹${val / 1000}k`}
+                axisLine={{ stroke: "#eaedf0" }}
+              />
+              <YAxis
+                stroke="#d1d5db"
+                tick={{ fill: "#9ca3af", fontSize: 11 }}
+                tickLine={false}
+                axisLine={{ stroke: "#eaedf0" }}
+                tickFormatter={(val) => `₹${Math.round(val / 1000)}k`}
               />
               <Tooltip
-                contentStyle={{ backgroundColor: "#111827", borderColor: "#374151", borderRadius: "0.75rem", fontSize: "12px" }}
-                formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`, ""]}
+                contentStyle={tooltipStyle}
+                formatter={(value) => {
+                  const num = typeof value === "number" ? value : 0;
+                  return [`₹${Math.round(num).toLocaleString("en-IN")}`, ""] as [string, string];
+                }}
               />
               <Area
                 type="monotone"
                 dataKey="atRisk"
                 stroke="#ef4444"
                 strokeWidth={2}
-                fillOpacity={1}
-                fill="url(#colorAtRisk)"
+                fill="rgba(239,68,68,0.05)"
                 name="At Risk"
               />
               <Area
                 type="monotone"
                 dataKey="recovered"
-                stroke="#22c55e"
+                stroke="#059669"
                 strokeWidth={2}
-                fillOpacity={1}
-                fill="url(#colorRecovered)"
+                fill="rgba(5,150,105,0.06)"
                 name="Recovered"
               />
             </AreaChart>
           </ResponsiveContainer>
+          )}
         </div>
       </div>
 
-      {/* ── 2. Bar Chart: Recovery Rate by Decline Category ─────────────────── */}
-      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+      {/* ── 2. Bar Chart: RCA Category Breakdown + Channels ── */}
+      <div
+        className="ds-card"
+        style={{
+          padding: "18px 20px",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+        }}
+      >
         <div>
-          <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-1">
-            Recovery Rate by RCA Category
-          </h3>
-          <p className="text-xs text-gray-400 mb-4">
-            Success % per standardized failure category
-          </p>
+          <div style={{ marginBottom: "14px" }}>
+            <span className="ds-section-title">Recovery by RCA Category</span>
+            <p style={{ fontSize: 12, color: "var(--text-soft)", margin: "2px 0 0" }}>
+              Algorithmic win-rate per failure type
+            </p>
+          </div>
 
-          <div className="h-44 w-full">
+          <div style={{ height: "140px", width: "100%" }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={categories?.byCategory ?? []}
                 layout="vertical"
-                margin={{ top: 0, right: 20, left: 10, bottom: 0 }}
+                margin={{ top: 0, right: 16, left: 10, bottom: 0 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" horizontal={false} />
-                <XAxis type="number" domain={[0, 100]} stroke="#6b7280" fontSize={10} unit="%" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f5" horizontal={false} />
+                <XAxis
+                  type="number"
+                  domain={[0, 100]}
+                  stroke="#d1d5db"
+                  tick={{ fill: "#9ca3af", fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={{ stroke: "#eaedf0" }}
+                  unit="%"
+                />
                 <YAxis
                   dataKey="category"
                   type="category"
-                  stroke="#9ca3af"
-                  fontSize={10}
+                  stroke="#d1d5db"
+                  tick={{ fill: "#6b7280", fontSize: 11 }}
                   tickLine={false}
-                  width={110}
-                  tickFormatter={(val) => val.split(" ")[0]}
+                  axisLine={false}
+                  width={90}
+                  tickFormatter={formatCategoryLabel}
                 />
                 <Tooltip
-                  contentStyle={{ backgroundColor: "#111827", borderColor: "#374151", borderRadius: "0.5rem", fontSize: "11px" }}
+                  contentStyle={tooltipStyle}
                   formatter={(val: number) => [`${val}%`, "Recovery Rate"]}
                 />
-                <Bar dataKey="recoveryRate" radius={[0, 4, 4, 0]}>
+                <Bar dataKey="recoveryRate" radius={[0, 4, 4, 0]} fill="#2563eb" barSize={12}>
                   {(categories?.byCategory ?? []).map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
@@ -132,19 +198,29 @@ export function RecoveryCharts({ timeseries, categories }: RecoveryChartsProps):
           </div>
         </div>
 
-        {/* ── 3. Channel Split Donut / Legend ──────────────────────────────── */}
-        <div className="border-t border-gray-800 pt-3 mt-2">
-          <div className="text-xs font-semibold text-gray-300 mb-2">
-            Top Recovery Channels
-          </div>
-          <div className="grid grid-cols-2 gap-2">
+        {/* ── Channel Distribution ── */}
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "12px", marginTop: "10px" }}>
+          <span className="ds-label" style={{ fontSize: 10.5, marginBottom: "8px", display: "block" }}>
+            RECOVERY CHANNELS
+          </span>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
             {(categories?.byChannel ?? []).map((c) => (
-              <div key={c.channel} className="flex items-center space-x-2 bg-gray-950/60 p-2 rounded-lg border border-gray-800">
-                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: c.color }}></span>
-                <div className="min-w-0">
-                  <p className="text-[11px] font-medium text-gray-200 truncate">{c.channel}</p>
-                  <p className="text-[10px] text-gray-400 font-mono">{c.share}%</p>
-                </div>
+              <div key={c.channel} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11.5px" }}>
+                <span
+                  style={{
+                    width: "6px",
+                    height: "6px",
+                    borderRadius: "50%",
+                    backgroundColor: c.color,
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ color: "var(--text-body)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>
+                  {c.channel}
+                </span>
+                <span style={{ color: "var(--text-faint)", fontFamily: "monospace" }}>
+                  {c.share}%
+                </span>
               </div>
             ))}
           </div>
@@ -153,3 +229,5 @@ export function RecoveryCharts({ timeseries, categories }: RecoveryChartsProps):
     </div>
   );
 }
+
+export default RecoveryCharts;

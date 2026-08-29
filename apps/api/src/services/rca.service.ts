@@ -114,9 +114,13 @@ export function classifyPaymentFailure(
   const desc = (rawErrorDescription ?? "").toLowerCase();
 
   // 1. Check Hard Declines
+  // NOTE: We match "card expired" specifically (not a bare "expired") to prevent
+  // OTP-expiry ("OTP has expired"), session-expiry, and mandate-expiry messages
+  // from being misclassified as permanent stolen/expired-card hard declines.
   if (
     HARD_DECLINE_CODES.has(code) ||
-    desc.includes("expired") ||
+    desc.includes("card expired") ||
+    desc.includes("card is expired") ||
     desc.includes("stolen") ||
     desc.includes("invalid card") ||
     desc.includes("account closed")

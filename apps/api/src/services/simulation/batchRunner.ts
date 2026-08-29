@@ -12,6 +12,7 @@ import { DeclineCategory } from "@revrec/types";
 import { generateBatchScenarios } from "./scenarioGenerator";
 import { classifyPaymentFailure } from "../rca.service";
 import { calculateNextRetrySchedule } from "../retrySequencer.service";
+import { evaluateCustomerRisk } from "../customerRisk.service";
 import { logger } from "../../config/logger";
 
 export interface BatchSimulationResult {
@@ -61,23 +62,31 @@ export async function runBatchSimulation(batchSize: number = 25): Promise<BatchS
   for (const item of scenarios) {
     totalAtRiskPaise += item.amountInPaise;
 
-    // 1. Upsert synthetic Customer
+    // 1. Classify via RCA engine
+    const rca = classifyPaymentFailure(item.gatewayErrorCode);
+    const riskProfile = evaluateCustomerRisk(item.customerRiskScore, 85, rca.category, item.gatewayErrorCode);
+
+    // 2. Upsert synthetic Customer
     const customer = await prisma.customer.upsert({
       where: { externalId: item.externalCustomerId },
-      update: { riskScore: item.customerRiskScore, ltvInPaise: item.customerLtvInPaise },
+      update: {
+        riskScore: item.customerRiskScore,
+        riskTier: riskProfile.riskTier,
+        paymentHistoryScore: riskProfile.paymentHistoryScore,
+        ltvInPaise: item.customerLtvInPaise,
+      },
       create: {
         externalId: item.externalCustomerId,
         name: item.customerName,
         email: item.customerEmail,
         phone: item.customerPhone,
         riskScore: item.customerRiskScore,
+        riskTier: riskProfile.riskTier,
+        paymentHistoryScore: riskProfile.paymentHistoryScore,
         ltvInPaise: item.customerLtvInPaise,
         preferredChannel: DunningChannel.WHATSAPP,
       },
     });
-
-    // 2. Classify via RCA engine
-    const rca = classifyPaymentFailure(item.gatewayErrorCode);
 
     // 3. Create failed Payment
     const payment = await prisma.payment.create({

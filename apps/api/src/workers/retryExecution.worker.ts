@@ -67,12 +67,14 @@ async function processRetryJob(job: Job<RetryExecutionJobData>): Promise<void> {
     return;
   }
 
-  // 2. State machine guard: if workflow already completed, halted, or escalated, abort retry
-  if (
+  // 2. State machine guard: if workflow already completed, halted, escalated, or abandoned — abort retry
+  const isTerminal =
     workflow.stage === RecoveryStage.RECOVERED ||
     workflow.stage === RecoveryStage.HALTED ||
-    workflow.stage === RecoveryStage.ABANDONED
-  ) {
+    workflow.stage === RecoveryStage.ABANDONED ||
+    workflow.stage === RecoveryStage.ESCALATED; // prevent retries colliding with human agent escalation
+
+  if (isTerminal) {
     logger.info(`[RetryWorker] Workflow ${workflowId} is in terminal state ${workflow.stage} — skipping retry`);
     return;
   }
@@ -80,7 +82,8 @@ async function processRetryJob(job: Job<RetryExecutionJobData>): Promise<void> {
   const currentVersion = workflow.version;
 
   // 3. Execute gateway retry attempt
-  const retryResult = await executeGatewayRetry(paymentId, workflow.amountAtRiskInPaise);
+  // Cast BigInt → number: executeGatewayRetry expects number; paise values fit safely in Number
+  const retryResult = await executeGatewayRetry(paymentId, Number(workflow.amountAtRiskInPaise));
 
   if (retryResult.success) {
     // ── SUCCESSFUL RECOVERY ─────────────────────────────────────────────────
@@ -123,7 +126,8 @@ async function processRetryJob(job: Job<RetryExecutionJobData>): Promise<void> {
             attemptNumber,
             strategyUsed,
             gatewayPaymentId: retryResult.gatewayPaymentId,
-            amountRecoveredInPaise: workflow.amountAtRiskInPaise,
+            // Cast BigInt → number: Prisma Json columns don't accept BigInt
+            amountRecoveredInPaise: Number(workflow.amountAtRiskInPaise),
           },
           previousStage: workflow.stage,
           newStage: RecoveryStage.RECOVERED,
@@ -153,7 +157,7 @@ async function processRetryJob(job: Job<RetryExecutionJobData>): Promise<void> {
       });
     });
 
-    logger.info(`[RetryWorker] 💰 SUCCESS! Recovered ₹${workflow.amountAtRiskInPaise / 100} on workflow ${workflowId}`);
+    logger.info(`[RetryWorker] 💰 SUCCESS! Recovered ₹${Number(workflow.amountAtRiskInPaise) / 100} on workflow ${workflowId}`);
   } else {
     // ── RETRY FAILED ────────────────────────────────────────────────────────
     const rawCategory = workflow.payment.declineCategory ?? "SOFT";
@@ -164,7 +168,14 @@ async function processRetryJob(job: Job<RetryExecutionJobData>): Promise<void> {
       customerRiskScore: workflow.customer.riskScore,
     });
 
-    await prisma.$transaction(async (tx) => {
+    const { pendingRetryJob, shouldEscalateToAgent } = await prisma.$transaction(async (tx) => {
+      let retryJob: {
+        data: RetryExecutionJobData;
+        opts: { delay: number; jobId: string };
+      } | null = null;
+
+      let escalate = false;
+
       // Audit Log: Payment Retry Failed
       await tx.auditLog.create({
         data: {
@@ -187,7 +198,7 @@ async function processRetryJob(job: Job<RetryExecutionJobData>): Promise<void> {
 
       if (nextSchedule.shouldRetry && nextSchedule.scheduledAt) {
         // Schedule next automatic retry
-        await tx.recoveryWorkflow.updateMany({
+        const scheduleUpdated = await tx.recoveryWorkflow.updateMany({
           where: { id: workflowId, version: currentVersion },
           data: {
             retryCount: workflow.retryCount + 1,
@@ -197,10 +208,14 @@ async function processRetryJob(job: Job<RetryExecutionJobData>): Promise<void> {
           },
         });
 
-        // Add to BullMQ delayed queue
-        await retryExecutionQueue.add(
-          "execute-retry",
-          {
+        // H3 fix: verify optimistic lock succeeded — if 0 rows updated, a concurrent
+        // writer modified the workflow. Throw to let BullMQ mark the job as failed.
+        if (scheduleUpdated.count === 0) {
+          throw new Error(`[RetryWorker] Optimistic lock conflict on workflow ${workflowId} during retry reschedule`);
+        }
+
+        retryJob = {
+          data: {
             workflowId: workflow.id,
             paymentId: workflow.paymentId,
             customerId: workflow.customerId,
@@ -208,16 +223,14 @@ async function processRetryJob(job: Job<RetryExecutionJobData>): Promise<void> {
             scheduledFor: nextSchedule.scheduledAt.toISOString(),
             strategyUsed: nextSchedule.strategyUsed,
           },
-          {
+          opts: {
             delay: Math.max(1000, nextSchedule.delaySeconds * 1000),
             jobId: `retry_${workflow.id}_att_${nextSchedule.attemptNumber}`,
-          }
-        );
-
-        logger.info(`[RetryWorker] Rescheduled attempt #${nextSchedule.attemptNumber} for workflow ${workflowId} at ${nextSchedule.scheduledAt.toISOString()}`);
+          },
+        };
       } else {
-        // Max retries exceeded -> escalate to customer outreach / AI Agent
-        await tx.recoveryWorkflow.updateMany({
+        // Max retries exceeded -> escalate to AI Agent for customer outreach
+        const escalateUpdated = await tx.recoveryWorkflow.updateMany({
           where: { id: workflowId, version: currentVersion },
           data: {
             retryCount: workflow.retryCount + 1,
@@ -227,6 +240,11 @@ async function processRetryJob(job: Job<RetryExecutionJobData>): Promise<void> {
             version: { increment: 1 },
           },
         });
+
+        // H3 fix: optimistic lock check on escalation path too
+        if (escalateUpdated.count === 0) {
+          throw new Error(`[RetryWorker] Optimistic lock conflict on workflow ${workflowId} during escalation`);
+        }
 
         await tx.auditLog.create({
           data: {
@@ -246,9 +264,37 @@ async function processRetryJob(job: Job<RetryExecutionJobData>): Promise<void> {
           },
         });
 
-        logger.info(`[RetryWorker] Retries exhausted for workflow ${workflowId}. Escalated to stage OUTREACH_SENT.`);
+        escalate = true;
       }
+
+      return { pendingRetryJob: retryJob, shouldEscalateToAgent: escalate };
     });
+
+    if (pendingRetryJob) {
+      // Add to BullMQ delayed queue outside transaction
+      await retryExecutionQueue.add(
+        "execute-retry",
+        pendingRetryJob.data,
+        pendingRetryJob.opts
+      );
+      logger.info(`[RetryWorker] Rescheduled attempt #${nextSchedule.attemptNumber} for workflow ${workflowId} at ${nextSchedule.scheduledAt?.toISOString()}`);
+    } else if (shouldEscalateToAgent) {
+      logger.info(`[RetryWorker] Retries exhausted for workflow ${workflowId}. Escalating to AI Agent for customer outreach.`);
+
+      // Dispatch agent decision job outside transaction
+      const { paymentEventsQueue } = await import("../queues/paymentEvents.queue");
+      await paymentEventsQueue.add(
+        "agent.decide",
+        {
+          eventId: `agent_escalation:${workflow.id}:${Date.now()}`,
+          eventType: "agent.decide",
+          gateway: "internal",
+          rawPayload: { workflowId: workflow.id, trigger: "max_retries_exceeded" },
+          receivedAt: new Date().toISOString(),
+        },
+        { jobId: `agent_decide_${workflow.id}`, delay: 5000 }
+      );
+    }
   }
 }
 

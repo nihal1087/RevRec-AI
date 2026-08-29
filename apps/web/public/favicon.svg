@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 32" width="34" height="32" fill="none">
+  <g transform="translate(2, 1) skewX(-9)">
+    <!-- First / Rear R -->
+    <path
+      d="M3 3h7.2c4.3 0 7.3 2.6 7.3 6.8 0 3.2-1.9 5.4-4.8 6.4l5.2 9.8h-4.6l-4.7-9H7v9H3V3zm4 7.2h3.1c2.1 0 3.5-1.1 3.5-2.9 0-1.8-1.4-2.9-3.5-2.9H7v5.8z"
+      fill="#1e40af"
+    />
+    <!-- Second / Front Overlapping R -->
+    <path
+      d="M10 7h7.2c4.3 0 7.3 2.6 7.3 6.8 0 3.2-1.9 5.4-4.8 6.4l5.2 9.8h-4.6l-4.7-9h-2.1v9h-4V7zm4 7.2h3.1c2.1 0 3.5-1.1 3.5-2.9 0-1.8-1.4-2.9-3.5-2.9H14v5.8z"
+      fill="#0284c7"
+      opacity="0.9"
+    />
+  </g>
+</svg>

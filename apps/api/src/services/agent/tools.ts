@@ -187,6 +187,8 @@ export async function executeAgentTool(
             customerId: workflow.customerId,
             channel: DunningChannel.WHATSAPP,
             messageTemplate: "partial_settlement_offer_v1",
+            sentAt: new Date(),
+            deliveredAt: new Date(Date.now() + 2000),
             customerResponse: `Settlement offer sent for ₹${toolInput.settlementAmountInPaise / 100} (Discount: ${toolInput.discountPercent}%): ${paymentUrl}`,
           },
         });
@@ -347,5 +349,8 @@ export async function executeAgentTool(
         details: { reason: toolInput.reason, writeOff: toolInput.writeOff },
       };
     }
+
+    default:
+      throw new Error(`Unsupported agent tool: ${(toolInput as { tool: string }).tool}`);
   }
 }

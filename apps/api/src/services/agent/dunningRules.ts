@@ -111,10 +111,14 @@ export async function validateAgentAction(
   // ── 4. RBI 7-DAY CONTACT FREQUENCY CAP ──────────────────────────────────
   if (toolInput.tool === AgentToolName.SEND_WHATSAPP_RECOVERY_LINK) {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    // H5 fix: exclude inbound customer replies (templateName = "inbound_customer_reply")
+    // so that bot conversation replies don't artificially inflate the outbound contact count
+    // and trigger the RBI 7-day frequency cap, blocking legitimate recovery outreach.
     const recentContactsCount = await prisma.dunningContact.count({
       where: {
         customerId: context.customerId,
         sentAt: { gte: sevenDaysAgo },
+        messageTemplate: { not: "inbound_customer_reply" },
       },
     });
 

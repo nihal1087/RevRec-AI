@@ -46,8 +46,14 @@ router.post("/decide/:workflowId", async (req: Request, res: Response) => {
       toolResult: result.toolResult,
     });
   } catch (error) {
-    logger.error("[AgentRoutes] Error in agent decide endpoint:", error);
-    res.status(500).json({ error: (error as Error).message });
+    const msg = (error as Error).message ?? "";
+    // M9 fix: return 404 when the workflow simply doesn't exist instead of 500
+    if (msg.includes("not found") || msg.includes("No Recovery")) {
+      res.status(404).json({ error: "Workflow not found", detail: msg });
+    } else {
+      logger.error("[AgentRoutes] Error in agent decide endpoint:", error);
+      res.status(500).json({ error: msg });
+    }
   }
 });
 

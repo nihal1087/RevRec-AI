@@ -14,7 +14,7 @@ import { logger } from "../config/logger";
 const router = Router();
 
 const BatchSimulationRequestSchema = z.object({
-  count: z.number().int().min(1).max(500).default(25),
+  count: z.coerce.number().int().min(1).max(500).optional().default(25),
 });
 
 /**
@@ -23,8 +23,12 @@ const BatchSimulationRequestSchema = z.object({
  */
 router.post("/batch", async (req: Request, res: Response) => {
   try {
-    const parseResult = BatchSimulationRequestSchema.safeParse(req.body);
-    const count = parseResult.success ? parseResult.data.count : 25;
+    const parseResult = BatchSimulationRequestSchema.safeParse(req.body ?? {});
+    if (!parseResult.success) {
+      res.status(422).json({ error: "Invalid request", details: parseResult.error.flatten() });
+      return;
+    }
+    const count = parseResult.data.count;
 
     const result = await runBatchSimulation(count);
 
@@ -45,17 +49,21 @@ router.post("/batch", async (req: Request, res: Response) => {
  */
 router.get("/benchmark", async (_req: Request, res: Response) => {
   try {
-    const totalWorkflows = await prisma.recoveryWorkflow.count();
-    const recoveredWorkflows = await prisma.recoveryWorkflow.count({ where: { stage: RecoveryStage.RECOVERED } });
-    const financialAggregates = await prisma.recoveryWorkflow.aggregate({
-      _sum: {
-        amountAtRiskInPaise: true,
-        amountRecoveredInPaise: true,
-      },
-    });
+    // Run all 3 queries in parallel — no data dependency between them
+    const [totalWorkflows, recoveredWorkflows, financialAggregates] = await Promise.all([
+      prisma.recoveryWorkflow.count(),
+      prisma.recoveryWorkflow.count({ where: { stage: RecoveryStage.RECOVERED } }),
+      prisma.recoveryWorkflow.aggregate({
+        _sum: {
+          amountAtRiskInPaise: true,
+          amountRecoveredInPaise: true,
+        },
+      }),
+    ]);
 
-    const atRiskPaise = financialAggregates._sum.amountAtRiskInPaise ?? 0;
-    const recoveredPaise = financialAggregates._sum.amountRecoveredInPaise ?? 0;
+    // Cast BigInt → number: Prisma aggregate _sum returns BigInt for paise fields
+    const atRiskPaise = Number(financialAggregates._sum.amountAtRiskInPaise ?? 0n);
+    const recoveredPaise = Number(financialAggregates._sum.amountRecoveredInPaise ?? 0n);
     const currentRate = atRiskPaise > 0 ? (recoveredPaise / atRiskPaise) * 100 : 68.4;
 
     const naiveRate = 21.2;
@@ -103,10 +111,27 @@ router.get("/benchmark", async (_req: Request, res: Response) => {
 /**
  * POST /api/simulate/reset
  * Clears workflows, payments, and audit logs for clean interactive testing.
+ *
+ * ⚠️  SAFETY GATES:
+ * 1. Only available in non-production environments (NODE_ENV !== "production")
+ * 2. Requires `{ "confirm": true }` in the request body to prevent accidental wipes
  */
-router.post("/reset", async (_req: Request, res: Response) => {
+router.post("/reset", async (req: Request, res: Response) => {
+  // Gate 1: block completely in production
+  if (process.env["NODE_ENV"] === "production") {
+    res.status(403).json({ error: "Reset is disabled in production environments" });
+    return;
+  }
+
+  // Gate 2: require explicit confirmation body field to prevent accidental calls
+  if (req.body?.confirm !== true) {
+    res.status(400).json({ error: "Must pass { confirm: true } in request body to confirm reset" });
+    return;
+  }
+
   try {
-    // Wrap in a transaction so partial deletes never leave inconsistent state
+    // FK-safe delete order: leaf nodes first, then referenced tables
+    // auditLog → agentExecution → promiseToPay → dunningContact → recoveryWorkflow → payment
     await prisma.$transaction([
       prisma.auditLog.deleteMany(),
       prisma.agentExecution.deleteMany(),
@@ -115,6 +140,8 @@ router.post("/reset", async (_req: Request, res: Response) => {
       prisma.recoveryWorkflow.deleteMany(),
       prisma.payment.deleteMany(),
     ]);
+
+    logger.warn("[SimulationRoutes] Database recovery tables reset");
 
     res.json({
       status: "success",

@@ -20,6 +20,8 @@ import { recoveryRouter } from "./routes/recovery.routes";
 import { agentRouter } from "./routes/agent.routes";
 import { analyticsRouter } from "./routes/analytics.routes";
 import { simulationRouter } from "./routes/simulation.routes";
+import { checkoutRouter } from "./routes/checkout.routes";
+import { communicationsRouter } from "./routes/communications.routes";
 import { startPaymentEventWorker } from "./workers/paymentEvent.worker";
 import { startRetryExecutionWorker } from "./workers/retryExecution.worker";
 import { closeAllRedisConnections, getRedisClient } from "./config/redis";
@@ -62,6 +64,14 @@ app.use(
 // This runs AFTER the webhook route, so webhooks are unaffected.
 app.use(express.json({ limit: "10kb" }));
 
+// BigInt JSON Serializer — Prisma returns BigInt for monetary paise fields.
+// JSON.stringify(42n) throws TypeError by default. This replacer converts
+// BigInt to Number for JSON transport. Paise values fit safely in a JS Number
+// (Number.MAX_SAFE_INTEGER = 9,007,199,254,740,991 paise = ₹90 trillion).
+app.set("json replacer", (_key: string, value: unknown) =>
+  typeof value === "bigint" ? Number(value) : value
+);
+
 // ── STEP 3: Health Check ──────────────────────────────────────────────────────
 app.get("/health", async (_req: Request, res: Response) => {
   const checks: Record<string, string> = {
@@ -102,6 +112,8 @@ app.use("/api/recovery", recoveryRouter);
 app.use("/api/agent", agentRouter);
 app.use("/api/analytics", analyticsRouter);
 app.use("/api/simulate", simulationRouter);
+app.use("/api/checkout", checkoutRouter);
+app.use("/api/communications", communicationsRouter);
 
 // ── 404 Handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {
@@ -129,26 +141,31 @@ const PORT = parseInt(process.env["PORT"] ?? "3001", 10);
 let paymentEventWorker: ReturnType<typeof startPaymentEventWorker> | null = null;
 let retryExecutionWorker: ReturnType<typeof startRetryExecutionWorker> | null = null;
 
-const server = app.listen(PORT, () => {
-  logger.info(`[RevRec API] Server running on http://localhost:${PORT}`);
-  logger.info(`[RevRec API] Environment: ${process.env["NODE_ENV"] ?? "development"}`);
-  logger.info(`[RevRec API] Health: http://localhost:${PORT}/health`);
-  logger.info(`[RevRec API] Webhook: POST http://localhost:${PORT}/api/webhooks`);
-  logger.info(`[RevRec API] Recovery: GET/POST http://localhost:${PORT}/api/recovery`);
-  logger.info(`[RevRec API] Agent & Bot: POST http://localhost:${PORT}/api/agent`);
-  logger.info(`[RevRec API] Analytics: GET http://localhost:${PORT}/api/analytics/summary`);
-  logger.info(`[RevRec API] Simulation: POST http://localhost:${PORT}/api/simulate/batch`);
+let server: ReturnType<typeof app.listen> | null = null;
 
-  // Start BullMQ workers
-  try {
-    paymentEventWorker = startPaymentEventWorker();
-    retryExecutionWorker = startRetryExecutionWorker();
-    logger.info(`[RevRec API] BullMQ payment event and retry execution workers started`);
-  } catch (err) {
-    logger.error("[RevRec API] Failed to start BullMQ workers — shutting down", { err });
-    process.exit(1);
-  }
-});
+if (process.env["NODE_ENV"] !== "test") {
+  server = app.listen(PORT, () => {
+    logger.info(`[RevRec API] Server running on http://localhost:${PORT}`);
+    logger.info(`[RevRec API] Environment: ${process.env["NODE_ENV"] ?? "development"}`);
+    logger.info(`[RevRec API] Health: http://localhost:${PORT}/health`);
+    logger.info(`[RevRec API] Webhook: POST http://localhost:${PORT}/api/webhooks`);
+    logger.info(`[RevRec API] Recovery: GET/POST http://localhost:${PORT}/api/recovery`);
+    logger.info(`[RevRec API] Agent & Bot: POST http://localhost:${PORT}/api/agent`);
+    logger.info(`[RevRec API] Analytics: GET http://localhost:${PORT}/api/analytics/summary`);
+    logger.info(`[RevRec API] Simulation: POST http://localhost:${PORT}/api/simulate/batch`);
+    logger.info(`[RevRec API] Checkout: POST http://localhost:${PORT}/api/checkout/order`);
+
+    // Start BullMQ workers
+    try {
+      paymentEventWorker = startPaymentEventWorker();
+      retryExecutionWorker = startRetryExecutionWorker();
+      logger.info(`[RevRec API] BullMQ payment event and retry execution workers started`);
+    } catch (err) {
+      logger.error("[RevRec API] Failed to start BullMQ workers — shutting down", { err });
+      process.exit(1);
+    }
+  });
+}
 
 // ── Graceful Shutdown ─────────────────────────────────────────────────────────
 // Handle SIGTERM (Docker stop, Kubernetes pod termination) and SIGINT (Ctrl+C).
@@ -156,9 +173,7 @@ const server = app.listen(PORT, () => {
 async function gracefulShutdown(signal: string): Promise<void> {
   logger.info(`[RevRec API] Received ${signal} — shutting down gracefully...`);
 
-  server.close(async () => {
-    logger.info("[RevRec API] HTTP server closed — no new requests accepted");
-
+  const cleanup = async () => {
     // Close BullMQ workers first (stops accepting new jobs, awaits in-flight jobs)
     if (paymentEventWorker) await paymentEventWorker.close();
     if (retryExecutionWorker) await retryExecutionWorker.close();
@@ -174,7 +189,16 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
     logger.info("[RevRec API] Graceful shutdown complete");
     process.exit(0);
-  });
+  };
+
+  if (server) {
+    server.close(async () => {
+      logger.info("[RevRec API] HTTP server closed — no new requests accepted");
+      await cleanup();
+    });
+  } else {
+    await cleanup();
+  }
 
   // Force exit after 15 seconds if graceful shutdown stalls
   setTimeout(() => {

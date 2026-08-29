@@ -12,6 +12,8 @@ import { type PaymentEventJobData } from "../queues/paymentEvents.queue";
 import { retryExecutionQueue } from "../queues/retryExecution.queue";
 import { classifyPaymentFailure } from "../services/rca.service";
 import { calculateNextRetrySchedule } from "../services/retrySequencer.service";
+import { evaluateCustomerRisk } from "../services/customerRisk.service";
+import { runAgentDecision } from "../services/agent/agent.service";
 import { prisma, PaymentStatus, RecoveryStage, AuditEventType, DeclineCategory, Prisma } from "@revrec/db";
 import { logger } from "../config/logger";
 
@@ -41,6 +43,17 @@ async function processPaymentEvent(
       logger.info(`[Worker] invoice.payment_failed received — queued for Phase 3 handler`);
       break;
 
+    case "agent.decide": {
+      const workflowId = (rawPayload?.["workflowId"] as string | undefined) ?? (rawPayload?.["id"] as string | undefined);
+      if (workflowId) {
+        logger.info(`[Worker] Executing autonomous agent decision for workflow ${workflowId}`);
+        await runAgentDecision(workflowId);
+      } else {
+        logger.warn(`[Worker] agent.decide received without workflowId`);
+      }
+      break;
+    }
+
     default:
       logger.info(`[Worker] Unhandled event type: ${eventType} — job complete with no action`);
   }
@@ -68,7 +81,7 @@ async function handlePaymentFailed(
   const errorDescription = (entity["error_description"] as string | undefined) ?? "";
   const bankCode = (entity["bank"] as string | undefined) ?? "DEFAULT";
 
-  if (!externalId || !amountInPaise) {
+  if (!externalId || amountInPaise == null) {
     throw new Error(`payment.failed entity missing required fields (id, amount) | eventId: ${eventId}`);
   }
 
@@ -79,8 +92,23 @@ async function handlePaymentFailed(
   logger.info(`[RCA] Classified ${externalId} as ${rcaResult.category} (Confidence: ${rcaResult.confidence * 100}%) — ${rcaResult.reasoning}`);
 
   // 2. Transactional Database Ingestion & Workflow State Machine Setup
-  await prisma.$transaction(async (tx) => {
+  const pendingRetryJob = await prisma.$transaction(async (tx) => {
+    let jobToSchedule: {
+      name: string;
+      data: {
+        workflowId: string;
+        paymentId: string;
+        customerId: string;
+        attemptNumber: number;
+        scheduledFor: string;
+        strategyUsed: string;
+      };
+      opts: { delay: number; jobId: string };
+    } | null = null;
+
     // ── Upsert Customer Record ───────────────────────────────────────────────
+    const riskProfile = evaluateCustomerRisk(35, 85, rcaResult.category, errorCode);
+
     const customer = await tx.customer.upsert({
       where: { externalId: customerId },
       update: { updatedAt: new Date() },
@@ -89,8 +117,10 @@ async function handlePaymentFailed(
         name: (entity["name"] as string | undefined) ?? "Unknown Customer",
         email: (entity["email"] as string | undefined) ?? `${customerId}@unknown.revrec`,
         phone: (entity["contact"] as string | undefined) ?? "+910000000000",
-        riskScore: 50,
-        ltvInPaise: 0,
+        riskScore: riskProfile.riskScore,
+        riskTier: riskProfile.riskTier,
+        paymentHistoryScore: riskProfile.paymentHistoryScore,
+        ltvInPaise: 0n,
       },
     });
 
@@ -189,10 +219,10 @@ async function handlePaymentFailed(
             },
           });
 
-          // Enqueue delayed job into BullMQ
-          await retryExecutionQueue.add(
-            "execute-retry",
-            {
+          // Prepare BullMQ job to be enqueued outside transaction
+          jobToSchedule = {
+            name: "execute-retry",
+            data: {
               workflowId: workflow.id,
               paymentId: payment.id,
               customerId: customer.id,
@@ -200,11 +230,11 @@ async function handlePaymentFailed(
               scheduledFor: retrySchedule.scheduledAt.toISOString(),
               strategyUsed: retrySchedule.strategyUsed,
             },
-            {
+            opts: {
               delay: Math.max(1000, retrySchedule.delaySeconds * 1000),
               jobId: `retry_${workflow.id}_att_1`,
-            }
-          );
+            },
+          };
 
           // Audit: Payment Retry Scheduled
           await tx.auditLog.create({
@@ -281,7 +311,18 @@ async function handlePaymentFailed(
         errorMessage: `${errorCode}: ${errorDescription}`,
       },
     });
+
+    return jobToSchedule;
   });
+
+  // Enqueue delayed job into BullMQ OUTSIDE the database transaction
+  if (pendingRetryJob) {
+    await retryExecutionQueue.add(
+      pendingRetryJob.name,
+      pendingRetryJob.data,
+      pendingRetryJob.opts
+    );
+  }
 
   logger.info(`[Worker] ✅ Processed payment failure ${externalId} with RCA category ${rcaResult.category}`);
 }

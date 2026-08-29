@@ -1,5 +1,6 @@
 import React from "react";
-import { LucideIcon } from "lucide-react";
+import { type LucideIcon } from "lucide-react";
+import { PillBadge } from "./PillBadge";
 
 interface MetricCardProps {
   title: string;
@@ -8,53 +9,120 @@ interface MetricCardProps {
   icon: LucideIcon;
   variant?: "emerald" | "blue" | "amber" | "purple" | "danger";
   trend?: string;
+  onClick?: () => void;
+  isActive?: boolean;
 }
 
-export function MetricCard({
+export const MetricCard: React.FC<MetricCardProps> = ({
   title,
   value,
   subtitle,
   icon: Icon,
-  variant = "emerald",
+  variant = "blue",
   trend,
-}: MetricCardProps): React.JSX.Element {
-  const variantStyles = {
-    emerald: "from-emerald-500/10 to-teal-500/5 border-emerald-900/50 text-emerald-400",
-    blue: "from-blue-500/10 to-indigo-500/5 border-blue-900/50 text-blue-400",
-    amber: "from-amber-500/10 to-orange-500/5 border-amber-900/50 text-amber-400",
-    purple: "from-purple-500/10 to-fuchsia-500/5 border-purple-900/50 text-purple-400",
-    danger: "from-red-500/10 to-rose-500/5 border-red-900/50 text-red-400",
-  };
+  onClick,
+  isActive = false,
+}) => {
+  // Map MetricCard variant names to PillBadge variant names (L6 fix)
+  const pillVariant =
+    variant === "emerald" ? "green" :
+    variant === "danger"  ? "red"   :
+    variant;
 
   return (
     <div
-      className={`rounded-2xl border bg-gradient-to-br p-5 backdrop-blur-sm shadow-lg ${variantStyles[variant]}`}
+      className="ds-card"
+      onClick={onClick}
+      style={{
+        padding: "16px 18px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        minHeight: 112,
+        position: "relative",
+        cursor: onClick ? "pointer" : "default",
+        userSelect: "none",
+        transition: "all 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
+        border: isActive
+          ? "1px solid rgba(15, 23, 42, 0.35)"
+          : "1px solid var(--border)",
+        boxShadow: isActive
+          ? "0 2px 8px -2px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.12)"
+          : undefined,
+        backgroundColor: isActive ? "var(--bg-subtle)" : "var(--bg-surface)",
+      }}
+      onMouseEnter={(e) => {
+        if (onClick && !isActive) {
+          e.currentTarget.style.borderColor = "rgba(15, 23, 42, 0.22)";
+          e.currentTarget.style.backgroundColor = "var(--bg-subtle)";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (onClick && !isActive) {
+          e.currentTarget.style.borderColor = "var(--border)";
+          e.currentTarget.style.backgroundColor = "var(--bg-surface)";
+        }
+      }}
     >
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+      {/* ── Top row: Label + subtle monochrome icon ── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <span
+          style={{
+            fontSize: 11.5,
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+            color: "var(--text-faint)",
+          }}
+        >
           {title}
         </span>
-        <div className="p-2 rounded-xl bg-gray-900/80 border border-gray-800">
-          <Icon className="w-5 h-5" />
-        </div>
+        <Icon size={14} style={{ color: "var(--text-faint)", opacity: 0.8 }} />
       </div>
 
-      <div className="flex items-baseline space-x-2">
-        <span className="text-2xl lg:text-3xl font-extrabold text-white font-mono tracking-tight">
+      {/* ── Middle: Tabular Metric Value ── */}
+      <div style={{ margin: "6px 0 4px" }}>
+        <span
+          style={{
+            fontSize: 24,
+            fontWeight: 700,
+            letterSpacing: "-0.03em",
+            color: "var(--text-strong)",
+            fontVariantNumeric: "tabular-nums",
+            lineHeight: 1.1,
+          }}
+        >
           {value}
         </span>
-        {trend && (
-          <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-800">
-            {trend}
-          </span>
-        )}
       </div>
 
-      {subtitle && (
-        <p className="mt-2 text-xs text-gray-400 flex items-center gap-1">
+      {/* ── Bottom row: Subtitle context + Trend indicator ── */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 6,
+          fontSize: 12,
+        }}
+      >
+        <span
+          title={typeof subtitle === "string" ? subtitle : undefined}
+          style={{ color: "var(--text-soft)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+        >
           {subtitle}
-        </p>
-      )}
+        </span>
+
+        {trend && (
+          <PillBadge variant={pillVariant as "green" | "blue" | "amber" | "purple" | "teal" | "red" | "neutral"} size="sm">
+            {trend}
+          </PillBadge>
+        )}
+      </div>
     </div>
   );
-}
+};
+
+export default MetricCard;
+
+

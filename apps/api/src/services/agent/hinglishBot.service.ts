@@ -15,15 +15,32 @@ import { prisma, AuditEventType, Prisma } from "@revrec/db";
 import { callGeminiStructured } from "./llmClient";
 import { logger } from "../../config/logger";
 
-export const HinglishBotResponseSchema = z.object({
-  intent: z.nativeEnum(HinglishIntent),
-  confidence: z.number().min(0).max(1),
-  sentiment: z.enum(["POSITIVE", "NEUTRAL", "ANGRY", "DISTRESSED"]),
-  extractedDate: z.string().optional(),
-  extractedDiscountPercent: z.number().optional(),
-  replyMessage: z.string().min(5),
-  actionRecommended: z.enum(["CREATE_PTP", "SEND_PAYMENT_LINK", "HALT_DUNNING", "ESCALATE_DISPUTE", "OFFER_DISCOUNT", "NONE"]),
-});
+export const HinglishBotResponseSchema = z.preprocess(
+  (val: unknown) => {
+    if (typeof val === "object" && val !== null) {
+      const raw = val as Record<string, unknown>;
+      return {
+        intent: typeof raw.intent === "string" ? raw.intent.toUpperCase() : "NEEDS_CLARIFICATION",
+        confidence: typeof raw.confidence === "number" ? raw.confidence : 0.9,
+        sentiment: typeof raw.sentiment === "string" ? raw.sentiment.toUpperCase() : "NEUTRAL",
+        extractedDate: raw.extractedDate ?? raw.extracted_date ?? (Array.isArray(raw.extracted_dates) && raw.extracted_dates.length > 0 ? raw.extracted_dates[0] : null),
+        extractedDiscountPercent: raw.extractedDiscountPercent ?? raw.extracted_discount_percent ?? null,
+        replyMessage: raw.replyMessage ?? raw.reply ?? raw.message ?? raw.reply_message ?? "Namaste! Aapke payment ke baare mein hum aapki kya madad kar sakte hain?",
+        actionRecommended: typeof raw.actionRecommended === "string" ? raw.actionRecommended.toUpperCase() : (typeof raw.action === "string" ? raw.action.toUpperCase() : "NONE"),
+      };
+    }
+    return val;
+  },
+  z.object({
+    intent: z.nativeEnum(HinglishIntent).catch(HinglishIntent.NEEDS_CLARIFICATION),
+    confidence: z.number().min(0).max(1).optional().default(0.9),
+    sentiment: z.enum(["POSITIVE", "NEUTRAL", "ANGRY", "DISTRESSED"]).catch("NEUTRAL"),
+    extractedDate: z.string().nullable().optional(),
+    extractedDiscountPercent: z.number().nullable().optional(),
+    replyMessage: z.string().min(2),
+    actionRecommended: z.enum(["CREATE_PTP", "SEND_PAYMENT_LINK", "HALT_DUNNING", "ESCALATE_DISPUTE", "OFFER_DISCOUNT", "NONE"]).catch("NONE"),
+  })
+);
 
 export type HinglishBotAnalysis = z.infer<typeof HinglishBotResponseSchema>;
 
@@ -44,29 +61,35 @@ export interface ChatTurnOutput {
 }
 
 const HINGLISH_SYSTEM_PROMPT = `
-You are RevRec's empathetic and polite payment assistance agent communicating with Indian customers via WhatsApp/SMS in Hinglish.
-Your goal: Help customers resolve pending payments smoothly with zero hostility, high empathy, and prompt problem-solving.
+You are RevRec's empathetic, intelligent, and polite payment assistance agent communicating with Indian customers via WhatsApp/SMS in natural Hinglish.
+Your goal: Help customers resolve pending payments smoothly with zero hostility, high empathy, and clear, helpful answers to whatever they ask.
 
 SUPPORTED HINGLISH INTENTS:
-1. PROMISE_TO_PAY: Customer commits to a future payment date (e.g., "Salary 5th ko aayegi", "Month end pe de dunga", "Next Monday pakka"). Extract the target date.
-2. PAYMENT_INTENT: Customer wants to pay right now or reports a gateway drop (e.g., "Link bhejo abhi karta hoon", "UPI stuck ho gaya tha", "Server busy tha").
-3. DISPUTE: Customer claims they didn't purchase, wrong charge, or cancelled (e.g., "Maine order nahi kiya", "Fraud charge hai").
-4. HARDSHIP: Customer expresses financial difficulty (e.g., "Abhi paisa nahi hai", "Thoda discount milega?").
-5. CONFIRMED_REFUSAL: Customer firmly refuses or demands to stop messaging (e.g., "Stop", "Don't message me", "Nahi karunga payment").
-6. NEEDS_CLARIFICATION: General queries or unclear remarks.
+1. PROMISE_TO_PAY: Customer commits to a future payment date (e.g., "Salary 5th ko aayegi", "Month end pe de dunga", "Next Monday pakka", "Kal tak ho jayega"). Extract the target date in ISO format.
+2. PAYMENT_INTENT: Customer wants to pay right now or reports a gateway drop (e.g., "Link bhejo abhi karta hoon", "UPI stuck ho gaya tha", "Server busy tha", "QR code do").
+3. DISPUTE: Customer claims they didn't purchase, wrong charge, or cancelled (e.g., "Maine order nahi kiya", "Fraud charge hai", "Galat charge hai").
+4. HARDSHIP: Customer expresses financial difficulty or asks for concession (e.g., "Abhi paisa nahi hai", "Thoda discount milega?", "Paise kam kar do").
+5. CONFIRMED_REFUSAL: Customer firmly refuses or demands to stop messaging (e.g., "Stop", "Don't message me", "Nahi karunga payment", "Bar bar mat bhejo").
+6. NEEDS_CLARIFICATION: General queries, greetings, questions about why the payment failed, what plan it is for, or conversational remarks. Answer their specific question politely, accurately, and clearly in Hinglish.
 
-TONE: Respectful, professional, warm Hinglish (conversational Hindi written in Roman script mixed with English).
-Always return strict JSON conforming to the requested schema.
+TONE & STYLE:
+- Respectful, professional, warm Hinglish (conversational Hindi written in Roman/English script).
+- Address customer by name if known. Be helpful and never robotic.
+- Always return valid JSON conforming to the requested schema.
 `;
 
 /**
- * Parses user colloquial expressions and converts relative dates ("5th", "next Monday") to ISO strings.
+ * Parses user colloquial expressions and converts relative dates ("5th", "kal", "next Monday") to ISO strings.
+ * Returns undefined if no clear date expression is found in the message.
  */
 function parseRelativeDate(text: string): string | undefined {
   const now = new Date();
   const lower = text.toLowerCase();
 
-  const dayMatch = lower.match(/(\d{1,2})\s*(?:st|nd|rd|th|ko|tarikh|tareekh)?/);
+  // H6 fix: require an explicit date suffix (st/nd/rd/th/ko/tarikh/tareekh) so that
+  // bare numbers like "20 rupees" or "order 15" don't get misread as a PTP day.
+  // The suffix group is now mandatory (\S+ not ?).
+  const dayMatch = lower.match(/\b(\d{1,2})\s*(?:st|nd|rd|th|ko|tarikh|tareekh)\b/i);
   if (dayMatch && dayMatch[1]) {
     const day = parseInt(dayMatch[1], 10);
     if (day >= 1 && day <= 31) {
@@ -86,7 +109,9 @@ function parseRelativeDate(text: string): string | undefined {
     return target.toISOString();
   }
 
-  return new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString();
+  // H6 fix: return undefined when no date expression found instead of defaulting
+  // to 3 days — the caller must handle undefined and not create a spurious PTP.
+  return undefined;
 }
 
 /**
@@ -98,19 +123,65 @@ export async function processCustomerMessage(input: ChatTurnInput): Promise<Chat
   logger.info(`[HinglishBot] Processing message from customer ${customerId} on ${channel}: "${userMessage}"`);
 
   // 1. Fetch relevant workflow and customer context
-  const workflow = workflowId
-    ? await prisma.recoveryWorkflow.findUnique({
-        where: { id: workflowId },
-        include: { customer: true, payment: true },
-      })
-    : await prisma.recoveryWorkflow.findFirst({
-        where: { customerId, stage: { notIn: [RecoveryStage.RECOVERED, RecoveryStage.HALTED] } },
-        orderBy: { createdAt: "desc" },
-        include: { customer: true, payment: true },
-      });
+  let workflow = null;
+  if (workflowId) {
+    workflow = await prisma.recoveryWorkflow.findFirst({
+      where: {
+        OR: [
+          { id: workflowId },
+          { paymentId: workflowId },
+          { payment: { externalId: workflowId } },
+        ],
+      },
+      include: { customer: true, payment: true },
+    });
+  }
 
-  const amountAtRiskPaise = workflow?.amountAtRiskInPaise ?? 99900;
+  if (!workflow && customerId) {
+    workflow = await prisma.recoveryWorkflow.findFirst({
+      where: {
+        OR: [
+          { customerId },
+          { customer: { externalId: customerId } },
+          { customer: { phone: customerId } },
+          { customer: { email: customerId } },
+        ],
+        stage: { notIn: [RecoveryStage.RECOVERED, RecoveryStage.HALTED] },
+      },
+      orderBy: { createdAt: "desc" },
+      include: { customer: true, payment: true },
+    });
+  }
+
+  // Fallback: If still no active workflow, try any latest workflow for this customer
+  if (!workflow && customerId) {
+    workflow = await prisma.recoveryWorkflow.findFirst({
+      where: {
+        OR: [
+          { customerId },
+          { customer: { externalId: customerId } },
+          { customer: { phone: customerId } },
+          { customer: { email: customerId } },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      include: { customer: true, payment: true },
+    });
+  }
+
+  // Fallback: If still no workflow in DB, grab latest available workflow
+  if (!workflow) {
+    workflow = await prisma.recoveryWorkflow.findFirst({
+      orderBy: { createdAt: "desc" },
+      include: { customer: true, payment: true },
+    });
+  }
+
+  // Cast BigInt → number: amountAtRiskInPaise is BigInt from Prisma; arithmetic requires Number
+  const amountAtRiskPaise = Number(workflow?.amountAtRiskInPaise ?? 99900n);
   const customerName = workflow?.customer.name ?? "Customer";
+  const gatewayError = workflow?.payment?.gatewayErrorCode ?? "INSUFFICIENT_FUNDS";
+  const declineCategory = workflow?.payment?.declineCategory ?? "SOFT";
 
   const userPrompt = `
 CUSTOMER INCOMING MESSAGE:
@@ -119,9 +190,10 @@ CUSTOMER INCOMING MESSAGE:
 CONTEXT:
 - Customer Name: ${customerName}
 - Pending Amount: ₹${amountAtRiskPaise / 100}
+- Failure Reason / Gateway Error: ${gatewayError} (Decline Category: ${declineCategory})
 - Current Date: ${new Date().toISOString().split("T")[0]}
 
-Analyze this message, identify intent and sentiment, extract any dates or discount requests, and provide an empathetic Hinglish reply.
+Analyze this message, identify intent and sentiment, extract any dates or discount requests, and provide an empathetic, helpful Hinglish reply. If the user asks why the payment failed, explain the failure reason politely and suggest clear next steps.
 `;
 
   // 2. LLM Intent & Entity Extraction
@@ -140,6 +212,13 @@ Analyze this message, identify intent and sentiment, extract any dates or discou
   let actionTaken = "REPLY_SENT";
   let promiseToPayId: string | undefined;
   let paymentUrl: string | undefined;
+
+  // Always generate 1-click payment link if intent is payment
+  if (analysis.intent === HinglishIntent.PAYMENT_INTENT || analysis.actionRecommended === "SEND_PAYMENT_LINK") {
+    const linkId = `plink_conv_${Date.now().toString(36)}`;
+    paymentUrl = `https://rzp.io/i/${linkId}`;
+    actionTaken = "PAYMENT_LINK_DISPATCHED";
+  }
 
   // 3. Execute Automated Financial Lifecycle Actions
   if (workflow) {
@@ -193,11 +272,7 @@ Analyze this message, identify intent and sentiment, extract any dates or discou
 
       logger.info(`[HinglishBot] ✅ PromiseToPay created (${ptp.id}) until ${promisedDate.toISOString()}`);
     } else if (analysis.intent === HinglishIntent.PAYMENT_INTENT || analysis.actionRecommended === "SEND_PAYMENT_LINK") {
-      // ── GENERATE 1-CLICK PAYMENT LINK ─────────────────────────────────────
-      const linkId = `plink_conv_${Date.now().toString(36)}`;
-      paymentUrl = `https://rzp.io/i/${linkId}`;
-      actionTaken = "PAYMENT_LINK_DISPATCHED";
-
+      // ── LOG 1-CLICK PAYMENT LINK ──────────────────────────────────────────
       await prisma.auditLog.create({
         data: {
           eventType: AuditEventType.OUTREACH_SENT,

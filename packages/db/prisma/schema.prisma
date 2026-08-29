@@ -13,12 +13,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─────────────────────────────────────────────────────────────────
-// ENUMS — Mirror of packages/types/src/enums.ts
-// Values MUST stay in sync. The TypeScript enums use string values
-// that match these exactly, enabling safe casting between layers.
-// ─────────────────────────────────────────────────────────────────
-
 enum PaymentStatus {
   PENDING
   AUTHORIZED
@@ -121,23 +115,21 @@ enum AuditEventType {
   MAX_ATTEMPTS_REACHED
 }
 
-// ─────────────────────────────────────────────────────────────────
 // CUSTOMER
-// ─────────────────────────────────────────────────────────────────
-
 model Customer {
-  id               String         @id @default(uuid())
-  externalId       String         @unique // e.g., Razorpay cust_xxxxx
-  name             String
-  email            String
-  phone            String         // E.164 format: +919876543210
-  // riskScore: 0-100 composite score from payment history analysis.
-  // Higher = higher default probability. Used by agent to calibrate effort.
-  riskScore        Int            @default(50)
-  ltvInPaise       Int            @default(0) // Lifetime value — guides recovery investment
-  preferredChannel DunningChannel @default(WHATSAPP)
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  id                  String         @id @default(uuid())
+  externalId          String         @unique
+  name                String
+  email               String
+  phone               String
+  riskScore           Int            @default(50)
+  riskTier            String         @default("LOW")
+  paymentHistoryScore Int            @default(85)
+  // Fix L1: BigInt — Int max is ~Rs 2.1Cr; high-value B2B customers exceed this
+  ltvInPaise          BigInt         @default(0)
+  preferredChannel    DunningChannel @default(WHATSAPP)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
   payments          Payment[]
   subscriptions     Subscription[]
@@ -145,36 +137,30 @@ model Customer {
   recoveryWorkflows RecoveryWorkflow[]
   dunningContacts   DunningContact[]
   promiseToPays     PromiseToPay[]
+  auditLogs         AuditLog[]       // Fix M12: added FK back-relation
 
-  @@index([externalId])
+  // Fix L1: removed @@index([externalId]) - redundant with @unique
   @@index([email])
 }
 
-// ─────────────────────────────────────────────────────────────────
 // PAYMENT
-// ─────────────────────────────────────────────────────────────────
-
 model Payment {
   id               String           @id @default(uuid())
-  externalId       String           @unique // Gateway payment ID: pay_xxxxx
+  externalId       String           @unique
   customerId       String
   customer         Customer         @relation(fields: [customerId], references: [id])
   subscriptionId   String?
   subscription     Subscription?    @relation(fields: [subscriptionId], references: [id])
   invoiceId        String?
   invoice          Invoice?         @relation(fields: [invoiceId], references: [id])
-  // amountInPaise: ALWAYS store money as integer paise. Never float rupees.
-  // 0.1 + 0.2 = 0.30000000000000004 in floating point — unacceptable in fintech.
-  amountInPaise    Int
+  // Fix L1: BigInt — enterprise payments can exceed Rs 2.1Cr Int limit
+  amountInPaise    BigInt
   currency         String           @default("INR")
   status           PaymentStatus    @default(PENDING)
-  gateway          String           // razorpay | stripe | paytm
-  gatewayErrorCode String?          // Raw code from gateway e.g. "INSUFFICIENT_FUNDS"
-  declineCategory  DeclineCategory? // Classified by RCA engine in Phase 2
-  idempotencyKey   String           @unique // Prevents webhook double-processing
-  // version: Used for optimistic locking. Before updating status, worker
-  // checks that version in DB matches what it read. If not, another process
-  // already updated — retry or abort. Prevents silent data overwrites.
+  gateway          String
+  gatewayErrorCode String?
+  declineCategory  DeclineCategory?
+  idempotencyKey   String           @unique
   version          Int              @default(0)
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
@@ -185,26 +171,22 @@ model Payment {
   @@index([customerId])
   @@index([status])
   @@index([createdAt])
-  @@index([externalId])
+  // Fix L1: removed @@index([externalId]) - redundant with @unique
 }
 
-// ─────────────────────────────────────────────────────────────────
-// SUBSCRIPTION (Recurring Billing — e-NACH / UPI AutoPay)
-// ─────────────────────────────────────────────────────────────────
-
+// SUBSCRIPTION
 model Subscription {
   id              String             @id @default(uuid())
-  externalId      String             @unique // sub_xxxxx
+  externalId      String             @unique
   customerId      String
   customer        Customer           @relation(fields: [customerId], references: [id])
   planName        String
-  amountInPaise   Int
+  // Fix L1: BigInt
+  amountInPaise   BigInt
   currency        String             @default("INR")
   status          SubscriptionStatus @default(ACTIVE)
   mandateType     MandateType
   nextBillingDate DateTime
-  // failedAttempts: Counter that resets to 0 on any successful charge.
-  // The Smart Retry Sequencer uses this to determine retry strategy.
   failedAttempts  Int                @default(0)
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
@@ -213,20 +195,18 @@ model Subscription {
 
   @@index([customerId])
   @@index([status])
-  @@index([nextBillingDate]) // Critical: queried daily for upcoming billing
+  @@index([nextBillingDate])
 }
 
-// ─────────────────────────────────────────────────────────────────
-// INVOICE (B2B Receivables)
-// ─────────────────────────────────────────────────────────────────
-
+// INVOICE
 model Invoice {
   id                String        @id @default(uuid())
-  externalId        String        @unique // inv_xxxxx
+  externalId        String        @unique
   customerId        String
   customer          Customer      @relation(fields: [customerId], references: [id])
-  amountInPaise     Int
-  paidAmountInPaise Int           @default(0)
+  // Fix L1: BigInt
+  amountInPaise     BigInt
+  paidAmountInPaise BigInt        @default(0)
   currency          String        @default("INR")
   status            InvoiceStatus @default(DRAFT)
   dueDate           DateTime
@@ -237,24 +217,19 @@ model Invoice {
 
   @@index([customerId])
   @@index([status])
-  @@index([dueDate]) // Queried to find overdue invoices
+  @@index([dueDate])
 }
 
-// ─────────────────────────────────────────────────────────────────
-// RECOVERY WORKFLOW — The Central Aggregate
-// One workflow per payment failure. Owns the entire recovery lifecycle.
-// ─────────────────────────────────────────────────────────────────
-
+// RECOVERY WORKFLOW
 model RecoveryWorkflow {
   id                     String          @id @default(uuid())
-  // paymentId is @unique: enforces one workflow per payment at DB level.
-  // This is our SECOND idempotency layer after Redis (defence in depth).
   paymentId              String          @unique
   payment                Payment         @relation(fields: [paymentId], references: [id])
   customerId             String
   customer               Customer        @relation(fields: [customerId], references: [id])
-  amountAtRiskInPaise    Int
-  amountRecoveredInPaise Int             @default(0)
+  // Fix L1: BigInt
+  amountAtRiskInPaise    BigInt
+  amountRecoveredInPaise BigInt          @default(0)
   currency               String          @default("INR")
   stage                  RecoveryStage   @default(PENDING)
   retryCount             Int             @default(0)
@@ -262,12 +237,8 @@ model RecoveryWorkflow {
   recoveryMethod         RecoveryMethod?
   haltReason             String?
   escalationReason       String?
-  nextActionAt           DateTime?       // When the next retry/outreach is scheduled
-  expiresAt              DateTime        // Auto-abandon after this date (30 days default)
-  // version: Optimistic lock field. Before any stage transition:
-  // UPDATE recovery_workflows SET stage=X, version=version+1
-  // WHERE id=? AND version=current_version
-  // If 0 rows affected, another worker already transitioned — abort.
+  nextActionAt           DateTime?
+  expiresAt              DateTime
   version                Int             @default(0)
   createdAt              DateTime        @default(now())
   updatedAt              DateTime        @updatedAt
@@ -279,16 +250,11 @@ model RecoveryWorkflow {
 
   @@index([customerId])
   @@index([stage])
-  @@index([nextActionAt]) // Queried by scheduler to find workflows due for action
+  @@index([nextActionAt])
   @@index([expiresAt])
 }
 
-// ─────────────────────────────────────────────────────────────────
-// DUNNING CONTACT LOG — Compliance Evidence
-// Every outreach attempt is logged. DunningRuleEngine queries this
-// table to enforce RBI's 3-contact-per-7-day limit.
-// ─────────────────────────────────────────────────────────────────
-
+// DUNNING CONTACT LOG
 model DunningContact {
   id               String           @id @default(uuid())
   workflowId       String
@@ -296,38 +262,32 @@ model DunningContact {
   customerId       String
   customer         Customer         @relation(fields: [customerId], references: [id])
   channel          DunningChannel
-  messageTemplate  String           // Template key e.g. "payment_failed_soft_v2"
+  messageTemplate  String
   sentAt           DateTime         @default(now())
   deliveredAt      DateTime?
   openedAt         DateTime?
-  clickedAt        DateTime?        // Customer clicked recovery link
-  customerResponse String?          // Raw reply from customer (Hinglish bot captures this)
+  clickedAt        DateTime?
+  customerResponse String?
 
   @@index([workflowId])
   @@index([customerId])
-  // This compound index powers the DunningRuleEngine's frequency check:
-  // "How many contacts did we send this customer in the last 7 days?"
   @@index([customerId, sentAt])
 }
 
-// ─────────────────────────────────────────────────────────────────
-// PROMISE TO PAY (PTP)
-// Created when a customer commits to paying by a specific date.
-// A background job monitors for breaches and re-triggers dunning.
-// ─────────────────────────────────────────────────────────────────
-
+// PROMISE TO PAY
 model PromiseToPay {
   id                    String           @id @default(uuid())
   workflowId            String
   workflow              RecoveryWorkflow @relation(fields: [workflowId], references: [id])
   customerId            String
   customer              Customer         @relation(fields: [customerId], references: [id])
-  promisedAmountInPaise Int
+  // Fix L1: BigInt
+  promisedAmountInPaise BigInt
   currency              String           @default("INR")
   promisedByDate        DateTime
   status                PromiseStatus    @default(ACTIVE)
   createdByChannel      DunningChannel
-  reminderScheduledAt   DateTime?        // Send reminder 24h before promise date
+  reminderScheduledAt   DateTime?
   fulfilledAt           DateTime?
   breachedAt            DateTime?
   createdAt             DateTime         @default(now())
@@ -335,38 +295,31 @@ model PromiseToPay {
 
   @@index([workflowId])
   @@index([status])
-  // Queried daily to find promises approaching their date
   @@index([promisedByDate, status])
 }
 
-// ─────────────────────────────────────────────────────────────────
 // AUDIT LOG — Immutable Append-Only Ledger
-// NEVER UPDATE OR DELETE rows here. This is the compliance record.
-// PostgreSQL RLS will enforce append-only in Phase 5.
-// ─────────────────────────────────────────────────────────────────
-
 model AuditLog {
-  id            String           @id @default(uuid())
+  id            String            @id @default(uuid())
   eventType     AuditEventType
   workflowId    String?
   workflow      RecoveryWorkflow? @relation(fields: [workflowId], references: [id])
   paymentId     String?
-  payment       Payment?         @relation(fields: [paymentId], references: [id])
+  payment       Payment?          @relation(fields: [paymentId], references: [id])
+  // Fix M12: proper FK relation (was bare String? with no referential integrity)
   customerId    String?
-  actorType     String           // From AuditActorType enum values
-  actorId       String           // ID of the process/agent/human that acted
-  // payload: Flexible JSONB field for event-specific data.
-  // Stores whatever context is relevant for that event type.
+  customer      Customer?         @relation(fields: [customerId], references: [id])
+  actorType     String
+  actorId       String
   payload       Json
   previousStage String?
   newStage      String?
-  amountInPaise Int?
-  outcome       String           // SUCCESS | FAILURE | PENDING | REJECTED
+  // Fix L1: BigInt
+  amountInPaise BigInt?
+  outcome       String
   errorMessage  String?
-  // checksum: SHA-256 hash of all other fields for tamper detection (Phase 5).
   checksum      String?
-  // No updatedAt field — this record must never change after creation.
-  createdAt     DateTime         @default(now())
+  createdAt     DateTime          @default(now())
 
   @@index([workflowId])
   @@index([paymentId])
@@ -375,31 +328,23 @@ model AuditLog {
   @@index([createdAt])
 }
 
-// ─────────────────────────────────────────────────────────────────
 // AGENT EXECUTION — AI Decision Trail
-// Every LLM call, tool selection, and policy check is recorded here.
-// The Merchant Dashboard's Audit Trace Viewer reads from this table.
-// ─────────────────────────────────────────────────────────────────
-
 model AgentExecution {
   id                   String           @id @default(uuid())
   workflowId           String
   workflow             RecoveryWorkflow @relation(fields: [workflowId], references: [id])
-  // reasoning: The agent's chain-of-thought. Stored as full text for the
-  // dashboard's decision trace viewer — shows WHY the agent chose each action.
   reasoning            String           @db.Text
-  selectedTool         String           // AgentToolName enum value
-  toolInput            Json             // Zod-validated tool arguments
-  confidenceScore      Float            // 0-1 agent self-assessment
+  selectedTool         String
+  toolInput            Json
+  confidenceScore      Float
   policyCheckPassed    Boolean
-  policyCheckDetails   String           // Which rules were checked and results
-  executionStatus      String           // EXECUTED | REJECTED_BY_POLICY | EXECUTION_FAILED
+  policyCheckDetails   String
+  executionStatus      String
   executionError       String?
   llmLatencyMs         Int
   llmTokensUsed        Int
-  // estimatedCostInPaise: Tracks LLM API cost per decision.
-  // Reported in the ROI dashboard: "Cost of Recovery" metric.
-  estimatedCostInPaise Int
+  // Fix M11: Float instead of Int — LLM costs are sub-paisa (e.g. 0.23 paise/call)
+  estimatedCostInPaise Float            @default(0)
   createdAt            DateTime         @default(now())
 
   @@index([workflowId])

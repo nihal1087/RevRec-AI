@@ -30,9 +30,10 @@ export interface SyntheticPaymentFailure {
 }
 
 const INDIAN_NAMES = [
-  "Aarav Sharma", "Priya Patel", "Rohan Verma", "Ananya Iyer", "Vikram Malhotra",
-  "Neha Gupta", "Kavita Nair", "Rajesh Kumar", "Siddharth Sen", "Meera Reddy",
-  "Aditya Chopra", "Pooja Joshi", "Varun Mehta", "Divya Menon", "Karan Singhal",
+  "Nakul Mahajan", "Akash Singh", "Mohammad Nihal", "Disha Mehra", "Arzoo Lilar",
+  "Dikshu Kaushik", "Prashant Goyal", "Tanishka Sharma", "Moon Light",
+  "Mahajan Infotech", "Singh Digital Media", "Kaushik Logistics",
+  "Mehra Enterprise Solutions", "Goyal Trading Co", "Lilar Fashions", "Sharma Exports",
 ];
 
 const SOFT_CODES = ["INSUFFICIENT_FUNDS", "EXCEEDS_BALANCE", "DAILY_LIMIT_EXCEEDED"];

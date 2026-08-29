@@ -13,15 +13,13 @@ services:
     container_name: revrec_prod_postgres
     restart: always
     environment:
-      POSTGRES_USER: revrec_user
-      POSTGRES_PASSWORD: revrec_pass
-      POSTGRES_DB: revrec_db
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-revrec_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-revrec_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-revrec_db}
     volumes:
       - revrec_prod_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U revrec_user -d revrec_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-revrec_user} -d ${POSTGRES_DB:-revrec_db}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -32,8 +30,6 @@ services:
     container_name: revrec_prod_redis
     restart: always
     command: redis-server --appendonly yes
-    ports:
-      - "6379:6379"
     volumes:
       - revrec_prod_redisdata:/data
     healthcheck:
@@ -52,11 +48,13 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
-      DATABASE_URL: postgresql://revrec_user:revrec_pass@postgres:5432/revrec_db?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-revrec_user}:${POSTGRES_PASSWORD:-revrec_pass}@postgres:5432/${POSTGRES_DB:-revrec_db}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       REDIS_URL: redis://redis:6379
-      WEBHOOK_SECRET: whsec_revrec_test_secret_key_32bytes_minimum_length!
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-change_me_to_your_gemini_api_key}
-      GEMINI_MODEL: gemini-1.5-flash
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}   # H10 fix: never hardcode — set in .env or CI secrets
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
     ports:
       - "3001:3001"
     depends_on:

@@ -1,6 +1,23 @@
-import React, { useState } from "react";
-import { WorkflowItem } from "../api/client";
-import { AlertCircle, CheckCircle2, Clock, PauseCircle, PhoneCall, Sparkles, User } from "lucide-react";
+import { useState, useMemo } from 'react';
+import { Search, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
+import { WorkflowItem } from '../api/client';
+import { PillBadge, RiskBadge, PillVariant } from './PillBadge';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const STAGES = [
+  { key: '', label: 'All' },
+  { key: 'RETRYING', label: 'Retrying' },
+  { key: 'OUTREACH_SENT', label: 'Outreach' },
+  { key: 'PROMISE_RECEIVED', label: 'PTP' },
+  { key: 'RECOVERED', label: 'Recovered' },
+  { key: 'HALTED', label: 'Halted' },
+  { key: 'ESCALATED', label: 'Escalated' },
+];
+
+const PAGE_SIZE = 10;
+
+// ─── Props ────────────────────────────────────────────────────────────────────
 
 interface WorkflowTableProps {
   workflows: WorkflowItem[];
@@ -9,187 +26,393 @@ interface WorkflowTableProps {
   onInspectWorkflow: (workflow: WorkflowItem) => void;
 }
 
-const STAGES = [
-  { key: "", label: "All Workflows" },
-  { key: "RETRYING", label: "Auto-Retrying" },
-  { key: "OUTREACH_SENT", label: "Outreach Sent" },
-  { key: "PROMISE_RECEIVED", label: "PTP Committed" },
-  { key: "RECOVERED", label: "Recovered" },
-  { key: "HALTED", label: "Halted" },
-  { key: "ESCALATED", label: "Escalated" },
-];
+// ─── Stage badge helper ───────────────────────────────────────────────────────
+
+function StageBadge({ stage }: { stage: string }) {
+  const variantMap: Record<string, PillVariant> = {
+    RECOVERED: 'green',
+    RETRYING: 'blue',
+    OUTREACH_SENT: 'purple',
+    PROMISE_RECEIVED: 'teal',
+    HALTED: 'neutral',
+    ESCALATED: 'red',
+  };
+  const variant = variantMap[stage] ?? 'neutral';
+  const label =
+    stage === 'OUTREACH_SENT'
+      ? 'OUTREACH'
+      : stage === 'PROMISE_RECEIVED'
+      ? 'PTP'
+      : stage.charAt(0) + stage.slice(1).toLowerCase().replace(/_/g, ' ');
+
+  return (
+    <PillBadge variant={variant}>
+      {label}
+    </PillBadge>
+  );
+}
+
+// ─── Category tag helper ──────────────────────────────────────────────────────
+
+function CategoryTag({ category }: { category?: string | null }) {
+  const variantMap: Record<string, PillVariant> = {
+    SOFT: 'green',
+    HARD: 'red',
+    NETWORK: 'blue',
+    INTENT_DROP: 'amber',
+    MANDATE_FAILURE: 'purple',
+  };
+  const variant = category ? variantMap[category] ?? 'neutral' : 'neutral';
+  const label =
+    category === 'INTENT_DROP'
+      ? 'INTENT DROP'
+      : category === 'MANDATE_FAILURE'
+      ? 'MANDATE'
+      : category ?? 'UNKNOWN';
+
+  return (
+    <PillBadge variant={variant}>
+      {label}
+    </PillBadge>
+  );
+}
+
+// ─── Avatar initials ──────────────────────────────────────────────────────────
+
+function Initials({ name }: { name: string }) {
+  const parts = (name ?? '').trim().split(/\s+/);
+  const initials =
+    parts.length >= 2
+      ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+      : (parts[0]?.[0] ?? '?').toUpperCase();
+
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 30,
+        height: 30,
+        borderRadius: '50%',
+        backgroundColor: 'var(--bg-subtle)',
+        border: '1px solid var(--border)',
+        flexShrink: 0,
+        fontSize: 11.5,
+        fontWeight: 600,
+        color: 'var(--text-soft)',
+        userSelect: 'none',
+      }}
+    >
+      {initials}
+    </span>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export function WorkflowTable({
   workflows,
   selectedStage,
   onSelectStage,
   onInspectWorkflow,
-}: WorkflowTableProps): React.JSX.Element {
-  const [searchTerm, setSearchTerm] = useState("");
+}: WorkflowTableProps) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
 
-  const filteredWorkflows = workflows.filter((w) => {
-    const term = searchTerm.toLowerCase();
-    return (
-      w.customer.name.toLowerCase().includes(term) ||
-      w.customer.email.toLowerCase().includes(term) ||
-      w.id.toLowerCase().includes(term) ||
-      (w.payment.gatewayErrorCode ?? "").toLowerCase().includes(term)
-    );
-  });
+  // ── Filtering ──────────────────────────────────────────────────────────────
 
-  const getStageBadge = (stage: string) => {
-    switch (stage) {
-      case "RECOVERED":
-        return <span className="badge-recovered flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> RECOVERED</span>;
-      case "RETRYING":
-        return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-950 text-blue-300 border border-blue-800"><Clock className="w-3 h-3 animate-pulse" /> RETRYING</span>;
-      case "OUTREACH_SENT":
-        return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-950 text-purple-300 border border-purple-800"><PhoneCall className="w-3 h-3" /> OUTREACH</span>;
-      case "PROMISE_RECEIVED":
-        return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-950 text-teal-300 border border-teal-800"><Sparkles className="w-3 h-3" /> PTP COMMITTED</span>;
-      case "HALTED":
-        return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-900 text-gray-400 border border-gray-700"><PauseCircle className="w-3 h-3" /> HALTED</span>;
-      case "ESCALATED":
-        return <span className="badge-at-risk flex items-center gap-1"><AlertCircle className="w-3 h-3" /> ESCALATED</span>;
-      default:
-        return <span className="badge-pending">{stage}</span>;
-    }
+  const filtered = useMemo(() => {
+    return workflows.filter((w) => {
+      const stageMatch =
+        selectedStage === '' ||
+        selectedStage === 'INTERCEPTED' ||
+        (selectedStage === 'ACTIVE'
+          ? w.stage !== 'RECOVERED' && w.stage !== 'HALTED' && w.stage !== 'ABANDONED'
+          : w.stage === selectedStage);
+      if (!stageMatch) return false;
+
+      if (searchTerm.trim() === '') return true;
+
+      const q = searchTerm.toLowerCase();
+      return (
+        // M18 fix: search by workflow ID and payment external ID (not just customerId)
+        w.id.toLowerCase().includes(q) ||
+        w.customer?.name?.toLowerCase().includes(q) ||        // M19 fix: optional chaining
+        w.customer?.email?.toLowerCase().includes(q) ||
+        w.customerId?.toLowerCase().includes(q) ||
+        w.payment?.externalId?.toLowerCase().includes(q) ||   // M18 fix: match pay_ IDs
+        (w.payment?.gatewayErrorCode ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [workflows, selectedStage, searchTerm]);
+
+  // Reset page when filter or search changes
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageIndex = Math.min(currentPage, totalPages);
+  const paginatedWorkflows = filtered.slice(
+    (pageIndex - 1) * PAGE_SIZE,
+    pageIndex * PAGE_SIZE
+  );
+
+  const handleStageSelect = (stageKey: string) => {
+    setCurrentPage(1);
+    onSelectStage(stageKey);
   };
 
-  const getCategoryBadge = (category: string | null) => {
-    switch (category) {
-      case "SOFT":
-        return <span className="text-xs px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-800/60 font-mono">SOFT</span>;
-      case "HARD":
-        return <span className="text-xs px-2 py-0.5 rounded bg-red-950/80 text-red-300 border border-red-800/60 font-mono">HARD</span>;
-      case "NETWORK":
-        return <span className="text-xs px-2 py-0.5 rounded bg-blue-950/80 text-blue-300 border border-blue-800/60 font-mono">NETWORK</span>;
-      case "INTENT_DROP":
-        return <span className="text-xs px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-800/60 font-mono">INTENT_DROP</span>;
-      case "MANDATE_FAILURE":
-        return <span className="text-xs px-2 py-0.5 rounded bg-purple-950/80 text-purple-300 border border-purple-800/60 font-mono">MANDATE</span>;
-      default:
-        return <span className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 font-mono">UNKNOWN</span>;
-    }
+  const handleSearchChange = (val: string) => {
+    setCurrentPage(1);
+    setSearchTerm(val);
   };
 
   return (
-    <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-6 shadow-xl my-6">
-      {/* ── Filters & Search ──────────────────────────────────────────────── */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
+    <div id="workflow-ledger-section" className="ds-card" style={{ overflow: 'hidden' }}>
+      {/* ── Card Header ── */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '18px 24px',
+          borderBottom: '1px solid var(--border)',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
         <div>
-          <h2 className="text-lg font-bold text-white tracking-tight">
-            Active Recovery State Machine Ledger
-          </h2>
-          <p className="text-xs text-gray-400">
-            Real-time multi-stage recovery workflows with deterministic policy bounds
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="ds-section-title">Recovery State Ledger</span>
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                padding: '2px 7px',
+                borderRadius: 999,
+                backgroundColor: 'var(--bg-subtle)',
+                color: 'var(--text-soft)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              {filtered.length} active
+            </span>
+          </div>
+          <p style={{ fontSize: 12.5, color: 'var(--text-soft)', margin: '2px 0 0' }}>
+            Deterministic state machine tracking each failed transaction
           </p>
         </div>
 
-        <div className="w-full md:w-64">
+        <div style={{ position: 'relative', width: 260 }}>
+          <Search
+            size={14}
+            style={{
+              position: 'absolute',
+              left: 11,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: 'var(--text-faint)',
+              pointerEvents: 'none',
+            }}
+          />
           <input
+            className="ds-input"
+            style={{ width: '100%', paddingLeft: 34, height: 36, fontSize: 13 }}
             type="text"
-            placeholder="Search by customer, ID, error..."
+            placeholder="Filter by customer, ID, error..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition"
+            onChange={(e) => handleSearchChange(e.target.value)}
           />
         </div>
       </div>
 
-      {/* ── Stage Filter Pills ────────────────────────────────────────────── */}
-      <div className="flex items-center space-x-2 overflow-x-auto pb-3 mb-4 scrollbar-thin">
-        {STAGES.map((s) => (
-          <button
-            key={s.key}
-            onClick={() => onSelectStage(s.key)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-              selectedStage === s.key
-                ? "bg-emerald-600 text-white shadow-md shadow-emerald-950"
-                : "bg-gray-950 text-gray-400 hover:bg-gray-800 hover:text-gray-200 border border-gray-800"
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
+      {/* ── Stage Filter Pills ── */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'row',
+          overflowX: 'auto',
+          gap: 6,
+          padding: '12px 24px',
+          backgroundColor: 'var(--bg-subtle)',
+          borderBottom: '1px solid var(--border)',
+          scrollbarWidth: 'none',
+        }}
+      >
+        {STAGES.map(({ key, label }) => {
+          const active = selectedStage === key;
+          return (
+            <button
+              key={key}
+              onClick={() => handleStageSelect(key)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                height: 28,
+                padding: '0 12px',
+                borderRadius: 6,
+                border: `1px solid ${active ? 'var(--brand-border)' : 'var(--border)'}`,
+                backgroundColor: active ? 'var(--bg-surface)' : 'transparent',
+                color: active ? 'var(--text-strong)' : 'var(--text-soft)',
+                fontWeight: active ? 600 : 400,
+                fontSize: 12.5,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                boxShadow: active ? 'var(--shadow-xs)' : 'none',
+                transition: 'background-color 0.12s ease',
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* ── Workflows Table ───────────────────────────────────────────────── */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-gray-800 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-              <th className="py-3 px-4">Workflow & Customer</th>
-              <th className="py-3 px-4">Amount At Risk</th>
-              <th className="py-3 px-4">RCA Classification</th>
-              <th className="py-3 px-4">Stage</th>
-              <th className="py-3 px-4">Attempts</th>
-              <th className="py-3 px-4 text-right">Actions</th>
+      {/* ── Bounded Table Scroll Container (Max Height 440px with Sticky Header) ── */}
+      <div
+        style={{
+          maxHeight: 440,
+          overflowY: 'auto',
+          overflowX: 'auto',
+          scrollbarWidth: 'thin',
+        }}
+      >
+        <table className="ds-table" style={{ width: '100%' }}>
+          <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: 'var(--bg-subtle)' }}>
+            <tr>
+              <th style={{ width: '24%' }}>Customer & Workflow</th>
+              <th style={{ width: '14%' }}>Amount At Risk</th>
+              <th style={{ width: '16%' }}>RCA Classification</th>
+              <th style={{ width: '14%' }}>Risk Tier</th>
+              <th style={{ width: '14%' }}>Current Stage</th>
+              <th style={{ width: '10%' }}>Attempts</th>
+              <th style={{ width: '8%', textAlign: 'right' }}>Action</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-800/60 text-xs">
-            {filteredWorkflows.length === 0 ? (
+
+          <tbody>
+            {paginatedWorkflows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center py-10 text-gray-500">
-                  No recovery workflows found matching the current criteria.
+                <td
+                  colSpan={7}
+                  style={{
+                    textAlign: 'center',
+                    padding: '48px 16px',
+                    color: 'var(--text-faint)',
+                    fontSize: 13.5,
+                  }}
+                >
+                  No recovery workflows matching the active criteria.
                 </td>
               </tr>
             ) : (
-              filteredWorkflows.map((w) => (
+              paginatedWorkflows.map((workflow) => (
                 <tr
-                  key={w.id}
-                  className="hover:bg-gray-800/30 transition group cursor-pointer"
-                  onClick={() => onInspectWorkflow(w)}
+                  key={workflow.id}
+                  onClick={() => onInspectWorkflow(workflow)}
+                  style={{ cursor: 'pointer' }}
                 >
-                  <td className="py-3.5 px-4">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-gray-400 flex-shrink-0">
-                        <User className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="font-semibold text-gray-200 group-hover:text-emerald-400 transition">
-                          {w.customer.name}
-                        </div>
-                        <div className="text-[11px] text-gray-500 font-mono">
-                          ID: {w.id.slice(0, 12)}... • Risk: {w.customer.riskScore}/100
-                        </div>
+                  {/* Customer */}
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <Initials name={workflow.customer.name} />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <span
+                          style={{
+                            fontSize: 13.5,
+                            fontWeight: 500,
+                            color: 'var(--text-strong)',
+                            lineHeight: '1.25',
+                          }}
+                        >
+                          {workflow.customer.name}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: 'var(--text-faint)',
+                            fontFamily: 'monospace',
+                            lineHeight: '1.2',
+                          }}
+                        >
+                          {workflow.id.slice(0, 12)}…
+                        </span>
                       </div>
                     </div>
                   </td>
 
-                  <td className="py-3.5 px-4 font-mono font-bold text-white">
-                    ₹{(w.amountAtRiskInPaise / 100).toLocaleString("en-IN")}
+                  {/* Amount */}
+                  <td>
+                    <span
+                      style={{
+                        fontFamily: 'monospace',
+                        fontWeight: 600,
+                        color: 'var(--text-strong)',
+                        fontSize: 13.5,
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      ₹{(workflow.amountAtRiskInPaise / 100).toLocaleString('en-IN')}
+                    </span>
                   </td>
 
-                  <td className="py-3.5 px-4">
-                    <div className="flex flex-col items-start gap-1">
-                      {getCategoryBadge(w.payment.declineCategory)}
-                      <span className="text-[10px] text-gray-500 font-mono">
-                        {w.payment.gatewayErrorCode ?? "UNSPECIFIED"}
+                  {/* RCA / Category */}
+                  <td>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                      <CategoryTag category={workflow.payment.declineCategory} />
+                      {workflow.payment.gatewayErrorCode && (
+                        <span style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'monospace' }}>
+                          {workflow.payment.gatewayErrorCode}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+
+                  {/* Risk Tier */}
+                  <td>
+                    <RiskBadge
+                      tier={
+                        workflow.customer.riskTier ??
+                        (workflow.customer.riskScore > 60 ? 'HIGH' : workflow.customer.riskScore > 30 ? 'MEDIUM' : 'LOW')
+                      }
+                      score={workflow.customer.paymentHistoryScore ?? (workflow.customer.riskScore > 60 ? 35 : workflow.customer.riskScore > 30 ? 65 : 90)}
+                      showScore
+                    />
+                  </td>
+
+                  {/* Stage */}
+                  <td>
+                    <StageBadge stage={workflow.stage} />
+                  </td>
+
+                  {/* Attempts */}
+                  <td>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontVariantNumeric: 'tabular-nums' }}>
+                      <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-strong)' }}>
+                        {workflow.retryCount} {workflow.retryCount === 1 ? 'retry' : 'retries'}
+                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+                        {workflow.outreachCount} outreach
                       </span>
                     </div>
                   </td>
 
-                  <td className="py-3.5 px-4">
-                    {getStageBadge(w.stage)}
-                  </td>
-
-                  <td className="py-3.5 px-4 font-mono text-gray-400">
-                    <span className="text-blue-400">{w.retryCount} retries</span>
-                    <span className="mx-1.5">•</span>
-                    <span className="text-purple-400">{w.outreachCount} outreach</span>
-                  </td>
-
-                  <td className="py-3.5 px-4 text-right">
+                  {/* Action */}
+                  <td style={{ textAlign: 'right' }}>
                     <button
+                      className="ds-btn ds-btn-ghost"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onInspectWorkflow(w);
+                        onInspectWorkflow(workflow);
                       }}
-                      className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-emerald-600 hover:text-white text-gray-300 text-xs font-semibold transition border border-gray-700"
+                      style={{
+                        height: 28,
+                        padding: '0 10px',
+                        fontSize: 11.5,
+                        gap: 4,
+                      }}
                     >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>Inspect</span>
+                      Inspect
+                      <ArrowRight size={12} />
                     </button>
                   </td>
                 </tr>
@@ -198,6 +421,51 @@ export function WorkflowTable({
           </tbody>
         </table>
       </div>
+
+      {/* ── Bounded Pagination & Footer Bar ── */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 24px',
+          borderTop: '1px solid var(--border)',
+          backgroundColor: 'var(--bg-surface)',
+          fontSize: 12.5,
+          color: 'var(--text-soft)',
+        }}
+      >
+        <span>
+          Showing {filtered.length === 0 ? 0 : (pageIndex - 1) * PAGE_SIZE + 1}–
+          {Math.min(pageIndex * PAGE_SIZE, filtered.length)} of {filtered.length} transactions
+        </span>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
+            Page {pageIndex} of {totalPages}
+          </span>
+          <button
+            className="ds-btn ds-btn-ghost ds-btn-icon"
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            disabled={pageIndex <= 1}
+            style={{ width: 28, height: 28, borderRadius: 6 }}
+            aria-label="Previous Page"
+          >
+            <ChevronLeft size={14} />
+          </button>
+          <button
+            className="ds-btn ds-btn-ghost ds-btn-icon"
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            disabled={pageIndex >= totalPages}
+            style={{ width: 28, height: 28, borderRadius: 6 }}
+            aria-label="Next Page"
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
+
+export default WorkflowTable;

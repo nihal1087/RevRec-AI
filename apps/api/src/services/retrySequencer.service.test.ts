@@ -27,15 +27,24 @@ describe("Smart Retry Sequencer Service", () => {
     });
 
     it("should schedule fast jittered retry for NETWORK errors", () => {
+      // M1 test update: use a recent timestamp so delaySeconds is relative to now.
+      // A historical timestamp correctly yields 0 delaySeconds (BullMQ runs it immediately).
+      const recentFailure = new Date(Date.now() - 5000); // 5 seconds ago
       const schedule = calculateNextRetrySchedule({
         category: DeclineCategory.NETWORK,
         currentAttemptCount: 0,
+        failureTimestamp: recentFailure,
       });
 
       expect(schedule.shouldRetry).toBe(true);
       expect(schedule.scheduledAt).not.toBeNull();
       expect(schedule.strategyUsed).toBe("FAST_NETWORK_RETRY");
-      expect(schedule.delaySeconds).toBeGreaterThanOrEqual(700); // 900s ± jitter
+      // scheduledAt should be ~900s after failureTimestamp (±30% jitter)
+      const diffMs = schedule.scheduledAt!.getTime() - recentFailure.getTime();
+      expect(diffMs).toBeGreaterThanOrEqual(700 * 1000);
+      expect(diffMs).toBeLessThanOrEqual(1200 * 1000);
+      // delaySeconds from now should be within the same window
+      expect(schedule.delaySeconds).toBeGreaterThanOrEqual(690); // 700 - 5s elapsed - margin
       expect(schedule.delaySeconds).toBeLessThanOrEqual(1200);
     });
 
