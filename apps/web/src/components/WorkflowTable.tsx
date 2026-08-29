@@ -246,22 +246,62 @@ export function WorkflowTable({
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
+                justifyContent: 'center',
                 height: 28,
                 padding: '0 12px',
                 borderRadius: 6,
-                border: `1px solid ${active ? 'var(--brand-border)' : 'var(--border)'}`,
+                border: active
+                  ? '1px solid rgba(15, 23, 42, 0.32)'
+                  : '1px solid var(--border)',
                 backgroundColor: active ? 'var(--bg-surface)' : 'transparent',
                 color: active ? 'var(--text-strong)' : 'var(--text-soft)',
-                fontWeight: active ? 600 : 400,
                 fontSize: 12.5,
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
-                boxShadow: active ? 'var(--shadow-xs)' : 'none',
-                transition: 'background-color 0.12s ease',
+                userSelect: 'none',
+                boxShadow: active
+                  ? '0 1px 3px -1px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.08)'
+                  : 'none',
+                transition: 'all 0.15s cubic-bezier(0.16, 1, 0.3, 1)',
+              }}
+              onMouseEnter={(e) => {
+                if (!active) {
+                  e.currentTarget.style.borderColor = 'rgba(15, 23, 42, 0.22)';
+                  e.currentTarget.style.backgroundColor = 'var(--bg-surface)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!active) {
+                  e.currentTarget.style.borderColor = 'var(--border)';
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }
               }}
             >
-              {label}
+              <span
+                style={{
+                  display: 'inline-flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: active ? 600 : 400,
+                }}
+              >
+                <span>{label}</span>
+                {/* Invisible bold duplicate pre-reserves exact width preventing horizontal layout shift */}
+                <span
+                  style={{
+                    fontWeight: 600,
+                    height: 0,
+                    overflow: 'hidden',
+                    visibility: 'hidden',
+                    userSelect: 'none',
+                  }}
+                  aria-hidden="true"
+                >
+                  {label}
+                </span>
+              </span>
             </button>
           );
         })}

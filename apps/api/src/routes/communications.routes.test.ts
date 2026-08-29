@@ -1,7 +1,12 @@
 import request from "supertest";
 import { app } from "../index";
+import { prisma, seedDatabase } from "@revrec/db";
 
 describe("Communications Center Routes (/api/communications)", () => {
+  beforeAll(async () => {
+    await seedDatabase(prisma);
+  });
+
   it("should return list of dispatches and computed omnichannel delivery metrics", async () => {
     const res = await request(app).get("/api/communications");
 

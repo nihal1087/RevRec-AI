@@ -50,7 +50,37 @@ const INITIAL_SUMMARY: AnalyticsSummary = {
   },
 };
 
+function parseRouteFromUrl(): { tab: string; caseId?: string } {
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  if (hash.startsWith("case/")) {
+    const caseId = hash.replace("case/", "").trim();
+    if (caseId) return { tab: "case-detail", caseId };
+  }
+  if (hash.startsWith("case-detail")) {
+    const query = hash.split("?")[1] || "";
+    const params = new URLSearchParams(query);
+    const caseId = params.get("id");
+    if (caseId) return { tab: "case-detail", caseId };
+  }
+  if (["communications", "demo", "workflows", "simulation", "overview"].includes(hash)) {
+    return { tab: hash };
+  }
+
+  // Fallback to localStorage if no hash in URL
+  const savedTab = localStorage.getItem("revrec_active_nav_tab");
+  const savedCaseId = localStorage.getItem("revrec_case_id");
+  if (savedTab === "case-detail" && savedCaseId) {
+    return { tab: "case-detail", caseId: savedCaseId };
+  }
+  if (savedTab && ["communications", "demo", "workflows", "simulation", "overview"].includes(savedTab)) {
+    return { tab: savedTab };
+  }
+
+  return { tab: "overview" };
+}
+
 export function App(): React.JSX.Element {
+  const initialRoute = parseRouteFromUrl();
   const [summary, setSummary] = useState<AnalyticsSummary>(INITIAL_SUMMARY);
   const [timeseries, setTimeseries] = useState<TimeseriesPoint[]>([]);
   const [categories, setCategories] = useState<CategoryAnalytics | null>(null);
@@ -60,6 +90,7 @@ export function App(): React.JSX.Element {
   const [drawerWorkflow, setDrawerWorkflow] = useState<WorkflowItem | null>(null);
   const [caseDetailWorkflow, setCaseDetailWorkflow] = useState<WorkflowItem | null>(null);
   const [isBotOpen, setIsBotOpen] = useState(false);
+  const [isBotMinimized, setIsBotMinimized] = useState(false);
   const [botCustomerId, setBotCustomerId] = useState("cust_demo_101");
   const [botWorkflowId, setBotWorkflowId] = useState<string | undefined>(undefined);
   // M16: isLoading = manual refresh (shows full spinner in header button)
@@ -68,8 +99,61 @@ export function App(): React.JSX.Element {
   const [isPolling, setIsPolling] = useState(false);
   // M15: track top-level API failure so the UI degrades gracefully
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [activeNavTab, setActiveNavTab] = useState("overview");
+  const [activeNavTab, setActiveNavTab] = useState<string>(initialRoute.tab);
   const [activeKpiTile, setActiveKpiTile] = useState<"at_risk" | "recovered" | "in_flight" | null>(null);
+
+  // Synchronize route changes to URL hash and localStorage
+  const navigateTo = useCallback((tab: string, caseId?: string) => {
+    setActiveNavTab(tab);
+    localStorage.setItem("revrec_active_nav_tab", tab);
+    if (tab === "case-detail" && caseId) {
+      localStorage.setItem("revrec_case_id", caseId);
+      window.location.hash = `#/case/${caseId}`;
+    } else {
+      localStorage.removeItem("revrec_case_id");
+      if (tab !== "case-detail") {
+        setCaseDetailWorkflow(null);
+      }
+      window.location.hash = `#/${tab}`;
+    }
+
+    if (tab === "overview") {
+      setSelectedStage("");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } else if (tab === "workflows") {
+      setTimeout(() => {
+        document.getElementById("workflow-ledger-section")?.scrollIntoView({ behavior: "smooth" });
+      }, 60);
+    } else if (tab === "simulation") {
+      setTimeout(() => {
+        document.getElementById("simulation-cockpit-section")?.scrollIntoView({ behavior: "smooth" });
+      }, 60);
+    }
+  }, []);
+
+  // Listen to browser hash changes (Back/Forward buttons or direct URL change)
+  useEffect(() => {
+    const handleHashSync = async () => {
+      const route = parseRouteFromUrl();
+      setActiveNavTab(route.tab);
+      if (route.tab === "case-detail" && route.caseId) {
+        try {
+          const fullDetails = await fetchWorkflowDetails(route.caseId);
+          setCaseDetailWorkflow(fullDetails);
+        } catch {
+          // If fetch fails, keep optimistic fallback
+        }
+      } else if (route.tab !== "case-detail") {
+        setCaseDetailWorkflow(null);
+      }
+    };
+
+    window.addEventListener("hashchange", handleHashSync);
+    // Initial mount sync (e.g. if loaded with #/case/id or #/communications)
+    handleHashSync();
+
+    return () => window.removeEventListener("hashchange", handleHashSync);
+  }, []);
 
   // M16: accepts a `silent` flag — background polls don't trigger the full loading spinner
   const loadData = useCallback(async (silent = false) => {
@@ -88,25 +172,39 @@ export function App(): React.JSX.Element {
         fetchRecoveryFunnel(),
       ]);
       // M15: if ALL calls failed, show a degraded banner instead of silently showing stale data
-      const allFailed = [sum, time, cat, wf, fun].every((r) => r.status === "rejected");
-      if (allFailed) {
-        setFetchError("Unable to reach the API — showing cached data. Check if the API server is running.");
+      if (
+        sum.status === "rejected" &&
+        time.status === "rejected" &&
+        cat.status === "rejected" &&
+        wf.status === "rejected" &&
+        fun.status === "rejected"
+      ) {
+        setFetchError("API Server unreachable — showing offline fallback state.");
+        return;
       }
       if (sum.status === "fulfilled") setSummary(sum.value);
       if (time.status === "fulfilled") setTimeseries(time.value);
       if (cat.status === "fulfilled") setCategories(cat.value);
       if (wf.status === "fulfilled") setWorkflows(wf.value);
       if (fun.status === "fulfilled") setFunnelData(fun.value);
+    } catch {
+      setFetchError("Failed to fetch dashboard data. Please try again.");
     } finally {
       setIsLoading(false);
       setIsPolling(false);
     }
   }, [selectedStage]);
 
+  // Initial load + refresh on stage filter change
   useEffect(() => {
-    loadData(); // initial load — not silent
-    // M16: background polls are silent so the header button doesn't spin every 15s
-    const interval = setInterval(() => loadData(true), 15000);
+    loadData(false);
+  }, [loadData]);
+
+  // Auto-polling interval every 10 seconds — silent background poll
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData(true);
+    }, 10000);
     return () => clearInterval(interval);
   }, [loadData]);
 
@@ -141,7 +239,7 @@ export function App(): React.JSX.Element {
   const handleOpenFullCase = async (workflow: WorkflowItem) => {
     setDrawerWorkflow(null);
     setCaseDetailWorkflow(workflow);
-    setActiveNavTab("case-detail");
+    navigateTo("case-detail", workflow.id);
     try {
       const fullDetails = await fetchWorkflowDetails(workflow.id);
       setCaseDetailWorkflow(fullDetails);
@@ -151,9 +249,17 @@ export function App(): React.JSX.Element {
   };
 
   const handleOpenBot = (customerId: string = "cust_demo_101", workflowId?: string) => {
+    // If bot is already open and expanded for this customer, clicking the action button toggles / minimizes it
+    if (isBotOpen && !isBotMinimized && botCustomerId === customerId && botWorkflowId === workflowId) {
+      setIsBotMinimized(true);
+      return;
+    }
+
+    // Otherwise, open/expand bot with the target customer context
     setBotCustomerId(customerId);
     setBotWorkflowId(workflowId);
     setIsBotOpen(true);
+    setIsBotMinimized(false);
   };
 
   return (
@@ -162,27 +268,17 @@ export function App(): React.JSX.Element {
       <Sidebar
         activeTab={activeNavTab}
         onSelectTab={(tab) => {
-          if (tab !== "case-detail") setCaseDetailWorkflow(null);
-          if (tab === "overview") {
-            setSelectedStage("");
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }
-          setActiveNavTab(tab);
+          navigateTo(tab);
         }}
       />
 
       {/* ── Main Application Workspace ── */}
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: "100vh" }}>
         <Header
           activeTab={activeNavTab}
           caseDetailWorkflow={caseDetailWorkflow}
           onNavigateTab={(tab) => {
-            if (tab !== "case-detail") setCaseDetailWorkflow(null);
-            if (tab === "overview") {
-              setSelectedStage("");
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }
-            setActiveNavTab(tab);
+            navigateTo(tab);
           }}
           onOpenBot={() => handleOpenBot()}
         />
@@ -233,40 +329,40 @@ export function App(): React.JSX.Element {
         )}
 
         {/* ── Dynamic Workspace Views ── */}
-        {activeNavTab === "demo" ? (
-          <DemoStore
-            onRecoveryTriggered={() => {
-              loadData();
-              setActiveNavTab("overview");
-            }}
-          />
-        ) : activeNavTab === "communications" ? (
-          <CommunicationsHub
-            onOpenFullCase={handleOpenFullCase}
-            onOpenBotForCustomer={handleOpenBot}
-          />
-        ) : activeNavTab === "case-detail" && caseDetailWorkflow ? (
-          <CaseDetailPage
-            workflow={caseDetailWorkflow}
-            onBack={() => {
-              setCaseDetailWorkflow(null);
-              setActiveNavTab("overview");
-            }}
-            onRefresh={async () => {
-              loadData();
-              if (caseDetailWorkflow) {
-                try {
-                  const updated = await fetchWorkflowDetails(caseDetailWorkflow.id);
-                  setCaseDetailWorkflow(updated);
-                } catch {
-                  // Keep existing
+        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+          {activeNavTab === "demo" ? (
+            <DemoStore
+              onRecoveryTriggered={() => {
+                loadData();
+                navigateTo("overview");
+              }}
+            />
+          ) : activeNavTab === "communications" ? (
+            <CommunicationsHub
+              onOpenFullCase={handleOpenFullCase}
+              onOpenBotForCustomer={handleOpenBot}
+            />
+          ) : activeNavTab === "case-detail" && caseDetailWorkflow ? (
+            <CaseDetailPage
+              workflow={caseDetailWorkflow}
+              onBack={() => {
+                navigateTo("overview");
+              }}
+              onRefresh={async () => {
+                loadData();
+                if (caseDetailWorkflow) {
+                  try {
+                    const updated = await fetchWorkflowDetails(caseDetailWorkflow.id);
+                    setCaseDetailWorkflow(updated);
+                  } catch {
+                    // Keep existing
+                  }
                 }
-              }
-            }}
-            onOpenBotForCustomer={handleOpenBot}
-          />
-        ) : (
-          <main style={{ flex: 1, maxWidth: 1320, width: "100%", margin: "0 auto", padding: "20px 28px 40px" }}>
+              }}
+              onOpenBotForCustomer={handleOpenBot}
+            />
+          ) : (
+            <main style={{ flex: 1, maxWidth: 1320, width: "100%", margin: "0 auto", padding: "20px 28px 40px" }}>
             {/* ── Page Header: Compact & High Density ── */}
             <div style={{ marginBottom: 18 }}>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
@@ -371,6 +467,7 @@ export function App(): React.JSX.Element {
             </div>
           </main>
         )}
+        </div>
 
         {/* ── Footer ── */}
         <footer
@@ -399,7 +496,12 @@ export function App(): React.JSX.Element {
       )}
       <HinglishBotSimulator
         isOpen={isBotOpen}
-        onClose={() => setIsBotOpen(false)}
+        isMinimized={isBotMinimized}
+        onMinimizeChange={setIsBotMinimized}
+        onClose={() => {
+          setIsBotOpen(false);
+          setIsBotMinimized(false);
+        }}
         initialCustomerId={botCustomerId}
         {...(botWorkflowId ? { initialWorkflowId: botWorkflowId } : {})}
         onRefresh={loadData}

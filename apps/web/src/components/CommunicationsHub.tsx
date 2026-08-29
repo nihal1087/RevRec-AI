@@ -16,6 +16,8 @@ import {
   Check,
   MousePointerClick,
   AlertCircle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { PillBadge, RiskBadge } from "./PillBadge";
 
@@ -64,6 +66,7 @@ export function CommunicationsHub({
 }: CommunicationsHubProps): React.JSX.Element {
   const [selectedChannel, setSelectedChannel] = useState("ALL");
   const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
   const [dispatches, setDispatches] = useState<CommunicationItem[]>([]);
   const [counts, setCounts] = useState<CommunicationsResponse["counts"] | null>(null);
   const [metrics, setMetrics] = useState<CommunicationsResponse["metrics"] | null>(null);
@@ -72,6 +75,21 @@ export function CommunicationsHub({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date>(new Date());
   const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+
+  const PAGE_SIZE = 10;
+  const totalPages = Math.max(1, Math.ceil(dispatches.length / PAGE_SIZE));
+  const activePage = Math.min(currentPage, totalPages);
+  const paginatedDispatches = dispatches.slice((activePage - 1) * PAGE_SIZE, activePage * PAGE_SIZE);
+
+  const handleChannelSelect = (channel: string) => {
+    setSelectedChannel(channel);
+    setCurrentPage(1);
+  };
+
+  const handleSearchChange = (term: string) => {
+    setSearchTerm(term);
+    setCurrentPage(1);
+  };
 
   const loadCommunications = useCallback(async () => {
     setIsLoading(true);
@@ -157,7 +175,7 @@ export function CommunicationsHub({
   };
 
   return (
-    <div style={{ padding: "20px 28px 48px", maxWidth: 1320, margin: "0 auto", width: "100%" }}>
+    <div style={{ padding: "20px 28px 48px", maxWidth: 1320, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
       {/* ── Error Banner (M23 fix) ── */}
       {fetchError && (
         <div style={{
@@ -272,12 +290,18 @@ export function CommunicationsHub({
         <div style={{ padding: "16px 18px", backgroundColor: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-faint)", textTransform: "uppercase" }}>WhatsApp Read Rate</span>
-            <PillBadge variant="green">
-              +{metrics?.whatsappReadRatePercent ?? 94.5}%
-            </PillBadge>
+            {metrics?.whatsappReadRatePercent != null ? (
+              <PillBadge variant="green">
+                +{metrics.whatsappReadRatePercent}%
+              </PillBadge>
+            ) : (
+              <PillBadge variant="neutral">
+                NO DATA
+              </PillBadge>
+            )}
           </div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#15803d", marginTop: 4, letterSpacing: "-0.02em" }}>
-            {metrics?.whatsappReadRatePercent ?? 94.5}%
+          <div style={{ fontSize: 22, fontWeight: 800, color: metrics?.whatsappReadRatePercent != null ? "#15803d" : "var(--text-faint)", marginTop: 4, letterSpacing: "-0.02em" }}>
+            {metrics?.whatsappReadRatePercent != null ? `${metrics.whatsappReadRatePercent}%` : "—"}
           </div>
           <span style={{ fontSize: 11.5, color: "var(--text-soft)", marginTop: 2, display: "block" }}>
             Highest conversion channel in India
@@ -285,9 +309,20 @@ export function CommunicationsHub({
         </div>
 
         <div style={{ padding: "16px 18px", backgroundColor: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-faint)", textTransform: "uppercase" }}>SMS Delivery Rate</span>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#1d4ed8", marginTop: 4, letterSpacing: "-0.02em" }}>
-            {metrics?.smsDeliveryRatePercent ?? 98.6}%
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-faint)", textTransform: "uppercase" }}>SMS Delivery Rate</span>
+            {metrics?.smsDeliveryRatePercent != null ? (
+              <PillBadge variant="blue">
+                +{metrics.smsDeliveryRatePercent}%
+              </PillBadge>
+            ) : (
+              <PillBadge variant="neutral">
+                NO DATA
+              </PillBadge>
+            )}
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: metrics?.smsDeliveryRatePercent != null ? "#1d4ed8" : "var(--text-faint)", marginTop: 4, letterSpacing: "-0.02em" }}>
+            {metrics?.smsDeliveryRatePercent != null ? `${metrics.smsDeliveryRatePercent}%` : "—"}
           </div>
           <span style={{ fontSize: 11.5, color: "var(--text-soft)", marginTop: 2, display: "block" }}>
             DLT registered template pipeline
@@ -300,7 +335,7 @@ export function CommunicationsHub({
             <TrendingUp size={14} color="#059669" />
           </div>
           <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text-strong)", marginTop: 4, letterSpacing: "-0.02em" }}>
-            ₹{Math.round((metrics?.totalRecoveredViaOutreachInPaise ?? 3798000) / 100).toLocaleString("en-IN")}
+            ₹{Math.round((metrics?.totalRecoveredViaOutreachInPaise ?? 0) / 100).toLocaleString("en-IN")}
           </div>
           <span style={{ fontSize: 11.5, color: "#059669", fontWeight: 600, marginTop: 2, display: "block" }}>
             Attributed to communication links
@@ -328,33 +363,76 @@ export function CommunicationsHub({
             return (
               <button
                 key={tab.id}
-                onClick={() => setSelectedChannel(tab.id)}
+                onClick={() => handleChannelSelect(tab.id)}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 6,
                   padding: "6px 12px",
-                  borderRadius: 6,
-                  border: `1px solid ${isSelected ? "var(--brand)" : "var(--border)"}`,
-                  backgroundColor: isSelected ? "var(--brand-tint)" : "var(--bg-surface)",
-                  color: isSelected ? "var(--brand)" : "var(--text-body)",
+                  borderRadius: 8,
+                  border: isSelected
+                    ? "1px solid rgba(15, 23, 42, 0.32)"
+                    : "1px solid var(--border)",
+                  backgroundColor: isSelected ? "var(--bg-subtle)" : "var(--bg-surface)",
+                  color: isSelected ? "var(--text-strong)" : "var(--text-body)",
+                  boxShadow: isSelected
+                    ? "0 1px 3px -1px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.08)"
+                    : "none",
                   fontSize: 12,
-                  fontWeight: isSelected ? 600 : 500,
+                  fontWeight: 500,
                   cursor: "pointer",
                   whiteSpace: "nowrap",
-                  transition: "background-color 0.12s ease, border-color 0.12s ease",
+                  userSelect: "none",
+                  transition: "all 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSelected) {
+                    e.currentTarget.style.borderColor = "rgba(15, 23, 42, 0.22)";
+                    e.currentTarget.style.backgroundColor = "var(--bg-subtle)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSelected) {
+                    e.currentTarget.style.borderColor = "var(--border)";
+                    e.currentTarget.style.backgroundColor = "var(--bg-surface)";
+                  }
                 }}
               >
-                <span>{tab.label}</span>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: isSelected ? 600 : 500,
+                  }}
+                >
+                  <span>{tab.label}</span>
+                  {/* Invisible bold text pre-reserves exact width preventing horizontal layout shift */}
+                  <span
+                    style={{
+                      fontWeight: 600,
+                      height: 0,
+                      overflow: "hidden",
+                      visibility: "hidden",
+                      userSelect: "none",
+                    }}
+                    aria-hidden="true"
+                  >
+                    {tab.label}
+                  </span>
+                </span>
                 {tabCount !== null && tabCount !== undefined && (
                   <span
                     style={{
                       fontSize: 10.5,
-                      fontWeight: 700,
-                      padding: "1px 5px",
+                      fontWeight: 600,
+                      padding: "1px 6px",
                       borderRadius: 10,
-                      backgroundColor: isSelected ? "var(--brand)" : "var(--bg-subtle)",
-                      color: isSelected ? "#ffffff" : "var(--text-soft)",
+                      backgroundColor: isSelected ? "rgba(15, 23, 42, 0.10)" : "var(--bg-subtle)",
+                      border: isSelected ? "1px solid rgba(15, 23, 42, 0.12)" : "1px solid var(--border)",
+                      color: isSelected ? "var(--text-strong)" : "var(--text-soft)",
+                      transition: "all 0.15s ease",
                     }}
                   >
                     {tabCount}
@@ -372,7 +450,7 @@ export function CommunicationsHub({
             type="text"
             placeholder="Search by customer, phone, or text..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             style={{
               width: "100%",
               height: 34,
@@ -420,7 +498,7 @@ export function CommunicationsHub({
             No communication dispatches found matching the filter criteria.
           </div>
         ) : (
-          dispatches.map((item) => {
+          paginatedDispatches.map((item) => {
             const isVoice = item.channel === "HINGLISH_VOICE";
             const st = getStatusBadge(item.status);
             const amountInRupees = item.workflow?.amountAtRiskInPaise
@@ -650,6 +728,85 @@ export function CommunicationsHub({
           })
         )}
       </div>
+
+      {/* ── Bounded Pagination Controls (Industry Standard) ── */}
+      {dispatches.length > PAGE_SIZE && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "12px 18px",
+            marginTop: 14,
+            borderRadius: 10,
+            border: "1px solid var(--border)",
+            backgroundColor: "var(--bg-surface)",
+            fontSize: 12.5,
+            color: "var(--text-soft)",
+            flexWrap: "wrap",
+            gap: 12,
+          }}
+        >
+          <span>
+            Showing {(activePage - 1) * PAGE_SIZE + 1}–
+            {Math.min(activePage * PAGE_SIZE, dispatches.length)} of {dispatches.length} dispatches
+          </span>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12, color: "var(--text-faint)" }}>
+              Page {activePage} of {totalPages}
+            </span>
+            <button
+              onClick={() => {
+                setCurrentPage((p) => Math.max(1, p - 1));
+                window.scrollTo({ top: 220, behavior: "smooth" });
+              }}
+              disabled={activePage <= 1}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                backgroundColor: "var(--bg-surface)",
+                color: activePage <= 1 ? "var(--text-faint)" : "var(--text-strong)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: activePage <= 1 ? "not-allowed" : "pointer",
+                opacity: activePage <= 1 ? 0.4 : 1,
+                transition: "all 0.12s ease",
+              }}
+              aria-label="Previous Page"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <button
+              onClick={() => {
+                setCurrentPage((p) => Math.min(totalPages, p + 1));
+                window.scrollTo({ top: 220, behavior: "smooth" });
+              }}
+              disabled={activePage >= totalPages}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                backgroundColor: "var(--bg-surface)",
+                color: activePage >= totalPages ? "var(--text-faint)" : "var(--text-strong)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: activePage >= totalPages ? "not-allowed" : "pointer",
+                opacity: activePage >= totalPages ? 0.4 : 1,
+                transition: "all 0.12s ease",
+              }}
+              aria-label="Next Page"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Floating Action Toast Notification ── */}
       {toastMessage && (

@@ -298,9 +298,9 @@ export interface CommunicationsResponse {
   };
   metrics: {
     totalDispatches: number;
-    whatsappReadRatePercent: number;
-    smsDeliveryRatePercent: number;
-    emailClickRatePercent: number;
+    whatsappReadRatePercent: number | null;
+    smsDeliveryRatePercent: number | null;
+    emailClickRatePercent: number | null;
     totalRecoveredViaOutreachInPaise: number;
   };
 }

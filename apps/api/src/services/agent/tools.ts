@@ -98,16 +98,23 @@ export async function executeAgentTool(
       const linkId = `plink_wa_${Date.now().toString(36)}`;
       const paymentUrl = `https://rzp.io/i/${linkId}`;
 
+      const customerName = workflow.customer.name ?? "there";
+      const amountRupees = (Number(workflow.amountAtRiskInPaise) / 100).toLocaleString("en-IN");
+      const templateKey = toolInput.messageTemplateKey ?? "whatsapp_recovery_link_v1";
+
+      // Craft a natural, human-sounding outreach message (not AI-formulaic)
+      const outreachMessage = `Namaste ${customerName} ji, aapka ₹${amountRupees} ka payment complete nahi ho paya — bank ki taraf se ek chota sa issue tha. Aapka account fully secure hai. Iss link se seedha settle kar sakte hain, 30 seconds mein ho jaayega: ${paymentUrl}`;
+
       await prisma.$transaction(async (tx) => {
         await tx.dunningContact.create({
           data: {
             workflowId: workflow.id,
             customerId: workflow.customerId,
             channel: DunningChannel.WHATSAPP,
-            messageTemplate: toolInput.messageTemplateKey,
+            messageTemplate: `${templateKey}:::${outreachMessage}`,
             sentAt: new Date(),
             deliveredAt: new Date(Date.now() + 2000),
-            customerResponse: `Payment link: ${paymentUrl}`,
+            customerResponse: null,
           },
         });
 
@@ -130,7 +137,7 @@ export async function executeAgentTool(
             actorId: "revenue-recovery-agent",
             payload: {
               channel: DunningChannel.WHATSAPP,
-              templateKey: toolInput.messageTemplateKey,
+              templateKey,
               includeDiscount: toolInput.includeDiscount,
               discountPercent: toolInput.discountPercent ?? 0,
               paymentUrl,
@@ -148,7 +155,7 @@ export async function executeAgentTool(
         toolExecuted: AgentToolName.SEND_WHATSAPP_RECOVERY_LINK,
         details: {
           channel: "WHATSAPP",
-          template: toolInput.messageTemplateKey,
+          template: templateKey,
           paymentUrl,
           recipientPhone: workflow.customer.phone,
         },
@@ -186,10 +193,10 @@ export async function executeAgentTool(
             workflowId: workflow.id,
             customerId: workflow.customerId,
             channel: DunningChannel.WHATSAPP,
-            messageTemplate: "partial_settlement_offer_v1",
+            messageTemplate: `partial_settlement_offer_v1:::Namaste ${workflow.customer.name ?? "there"} ji, ek khaas offer — sirf aaj ke liye: aap ₹${(toolInput.settlementAmountInPaise / 100).toLocaleString("en-IN")} mein full ₹${(Number(workflow.amountAtRiskInPaise) / 100).toLocaleString("en-IN")} settle kar sakte hain (${toolInput.discountPercent}% discount). Offer ${toolInput.validForHours} ghante mein expire hoga. Pay karne ke liye: ${paymentUrl}`,
             sentAt: new Date(),
             deliveredAt: new Date(Date.now() + 2000),
-            customerResponse: `Settlement offer sent for ₹${toolInput.settlementAmountInPaise / 100} (Discount: ${toolInput.discountPercent}%): ${paymentUrl}`,
+            customerResponse: null,
           },
         });
 

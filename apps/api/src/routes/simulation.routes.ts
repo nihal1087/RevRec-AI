@@ -8,7 +8,7 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { runBatchSimulation } from "../services/simulation/batchRunner";
-import { prisma, RecoveryStage } from "@revrec/db";
+import { prisma, RecoveryStage, clearDatabase } from "@revrec/db";
 import { logger } from "../config/logger";
 
 const router = Router();
@@ -130,22 +130,15 @@ router.post("/reset", async (req: Request, res: Response) => {
   }
 
   try {
-    // FK-safe delete order: leaf nodes first, then referenced tables
-    // auditLog → agentExecution → promiseToPay → dunningContact → recoveryWorkflow → payment
-    await prisma.$transaction([
-      prisma.auditLog.deleteMany(),
-      prisma.agentExecution.deleteMany(),
-      prisma.promiseToPay.deleteMany(),
-      prisma.dunningContact.deleteMany(),
-      prisma.recoveryWorkflow.deleteMany(),
-      prisma.payment.deleteMany(),
-    ]);
+    // Clear all tables completely for a fresh clean state
+    await clearDatabase(prisma);
 
-    logger.warn("[SimulationRoutes] Database recovery tables reset");
+    logger.info("[SimulationRoutes] Database successfully cleared (0 records)");
 
     res.json({
       status: "success",
-      message: "Database recovery tables reset successfully for clean demonstration",
+      message: "Database wiped clean (0 workflows, payments, and dispatches). Click Simulate 25 or Batch 100 to populate new scenarios.",
+      totalRecords: 0,
     });
   } catch (error) {
     logger.error("[SimulationRoutes] Error resetting tables:", error);

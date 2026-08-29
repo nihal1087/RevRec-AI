@@ -154,7 +154,7 @@ export function CaseDetailPage({
   ];
 
   return (
-    <div style={{ padding: "20px 28px 48px", maxWidth: 1320, margin: "0 auto" }}>
+    <div style={{ padding: "20px 28px 48px", maxWidth: 1320, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
       {/* ── Top Navigation & Breadcrumbs ── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
         <button
@@ -409,7 +409,7 @@ export function CaseDetailPage({
             </div>
             {workflow.stage === "RECOVERED" && (
               <span style={{ fontSize: 12, fontWeight: 600, color: "#16a34a" }}>
-                ✓ ₹{recoveredInRupees.toLocaleString("en-IN")} Recovered
+                ₹{recoveredInRupees.toLocaleString("en-IN")} Recovered
               </span>
             )}
           </div>

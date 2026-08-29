@@ -17,6 +17,15 @@ jest.mock("@revrec/db", () => {
       recoveryWorkflow: {
         create: jest.fn(),
       },
+      dunningContact: {
+        create: jest.fn(),
+      },
+      promiseToPay: {
+        create: jest.fn(),
+      },
+      agentExecution: {
+        create: jest.fn(),
+      },
       auditLog: {
         create: jest.fn(),
       },
@@ -30,6 +39,9 @@ describe("Simulation Engine & Scenario Generator", () => {
     (prisma.customer.upsert as jest.Mock).mockResolvedValue({ id: "cust_test_1", name: "Aarav Sharma" });
     (prisma.payment.create as jest.Mock).mockResolvedValue({ id: "pay_test_1" });
     (prisma.recoveryWorkflow.create as jest.Mock).mockResolvedValue({ id: "wf_test_1" });
+    (prisma.dunningContact.create as jest.Mock).mockResolvedValue({ id: "cnt_test_1" });
+    (prisma.promiseToPay.create as jest.Mock).mockResolvedValue({ id: "ptp_test_1" });
+    (prisma.agentExecution.create as jest.Mock).mockResolvedValue({ id: "exec_test_1" });
     (prisma.auditLog.create as jest.Mock).mockResolvedValue({ id: "aud_test_1" });
   });
 

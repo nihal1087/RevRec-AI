@@ -106,7 +106,36 @@ router.get("/:id", async (req: Request, res: Response) => {
       return;
     }
 
-    res.json({ data: workflow });
+    const formattedWorkflow = {
+      ...workflow,
+      dunningContacts: workflow.dunningContacts.map((c) => {
+        let templateName = c.messageTemplate;
+        let messagePayload = c.messageTemplate;
+        if (c.messageTemplate.includes(":::")) {
+          const parts = c.messageTemplate.split(":::");
+          templateName = parts[0] || "recovery_template";
+          messagePayload = parts.slice(1).join(":::") || templateName;
+        } else if (c.messageTemplate.includes(" ") || c.messageTemplate.length > 40) {
+          templateName = c.channel === "WHATSAPP"
+            ? "wa_smart_recovery_v2"
+            : c.channel === "SMS"
+            ? "sms_retry_alert_v1"
+            : c.channel === "EMAIL"
+            ? "email_dunning_v1"
+            : "hinglish_voice_concierge_v1";
+          messagePayload = c.messageTemplate;
+        }
+        const status = c.clickedAt ? "CLICKED" : c.openedAt ? "READ" : c.deliveredAt ? "DELIVERED" : "SENT";
+        return {
+          ...c,
+          templateName,
+          messagePayload,
+          status,
+        };
+      }),
+    };
+
+    res.json({ data: formattedWorkflow });
   } catch (error) {
     logger.error("[RecoveryRoutes] Error retrieving workflow:", error);
     res.status(500).json({ error: "Failed to fetch recovery workflow" });

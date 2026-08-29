@@ -63,3 +63,5 @@ export {
   PromiseStatus,
   AuditEventType,
 } from "@prisma/client";
+
+export { seedDatabase, clearDatabase } from "./seed";

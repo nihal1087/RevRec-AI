@@ -129,7 +129,60 @@ function generateDeterministicFallback(prompt: string, startTime: number): LlmGe
 
   let fallbackDecision: Record<string, unknown>;
 
-  if (promptLower.includes("intent_drop") || promptLower.includes("otp") || promptLower.includes("drop-off")) {
+  // Check if this is a Hinglish Recovery Bot prompt
+  if (promptLower.includes("hinglish") || promptLower.includes("promise_to_pay") || promptLower.includes("user_message") || promptLower.includes("conversational recovery")) {
+    if (promptLower.includes("salary") || promptLower.includes("5th") || promptLower.includes("kal") || promptLower.includes("tarikh") || promptLower.includes("pakka")) {
+      fallbackDecision = {
+        intent: "PROMISE_TO_PAY",
+        confidence: 0.95,
+        sentiment: "POSITIVE",
+        extractedDate: new Date(Date.now() + 5 * 86400 * 1000).toISOString(),
+        replyMessage: "Namaste! Bahut shukriya batane ke liye. Humne aapka promise register kar liya hai aur reminder set kar diya hai.",
+        actionRecommended: "CREATE_PTP",
+      };
+    } else if (promptLower.includes("link") || promptLower.includes("upi") || promptLower.includes("timeout") || promptLower.includes("stuck") || promptLower.includes("bhejo") || promptLower.includes("pay karta")) {
+      fallbackDecision = {
+        intent: "PAYMENT_INTENT",
+        confidence: 0.94,
+        sentiment: "POSITIVE",
+        replyMessage: "Ji bilkul, ye raha aapka instant 1-click payment link: https://rzp.io/i/instant-link. Is link par aap kisi bhi UPI app ya card se turant payment complete kar sakte hain.",
+        actionRecommended: "SEND_PAYMENT_LINK",
+      };
+    } else if (promptLower.includes("stop") || promptLower.includes("dnd") || promptLower.includes("mat karo") || promptLower.includes("nahi karunga") || promptLower.includes("opt out")) {
+      fallbackDecision = {
+        intent: "CONFIRMED_REFUSAL",
+        confidence: 0.98,
+        sentiment: "ANGRY",
+        replyMessage: "Hum aapki request ka samman karte hain. Dunning messages turant stop kar diye gaye hain.",
+        actionRecommended: "HALT_DUNNING",
+      };
+    } else if (promptLower.includes("fraud") || promptLower.includes("nahi kiya") || promptLower.includes("galat") || promptLower.includes("dispute") || promptLower.includes("order nahi")) {
+      fallbackDecision = {
+        intent: "DISPUTE",
+        confidence: 0.96,
+        sentiment: "ANGRY",
+        replyMessage: "Hum samajh sakte hain. Aapka case priority investigation ke liye escalate kar diya gaya hai aur dunning rok di gayi hai.",
+        actionRecommended: "ESCALATE_DISPUTE",
+      };
+    } else if (promptLower.includes("discount") || promptLower.includes("paise kam") || promptLower.includes("hardship") || promptLower.includes("paisa nahi")) {
+      fallbackDecision = {
+        intent: "HARDSHIP",
+        confidence: 0.91,
+        sentiment: "DISTRESSED",
+        extractedDiscountPercent: 10,
+        replyMessage: "Hum aapki pareshani samajhte hain. Hum aapko 10% instant relief discount offer kar rahe hain.",
+        actionRecommended: "OFFER_DISCOUNT",
+      };
+    } else {
+      fallbackDecision = {
+        intent: "NEEDS_CLARIFICATION",
+        confidence: 0.85,
+        sentiment: "NEUTRAL",
+        replyMessage: "Namaste! Aapke payment ya account ke baare mein hum aapki kya madad kar sakte hain?",
+        actionRecommended: "NONE",
+      };
+    }
+  } else if (promptLower.includes("intent_drop") || promptLower.includes("otp") || promptLower.includes("drop-off")) {
     fallbackDecision = {
       reasoning: "Customer drop-off during checkout. Sending 1-click WhatsApp recovery link.",
       confidenceScore: 0.92,

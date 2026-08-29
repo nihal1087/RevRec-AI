@@ -177,7 +177,7 @@ export function DemoStore({ onRecoveryTriggered }: DemoStoreProps): React.JSX.El
   );
 
   return (
-    <div style={{ padding: "24px 28px 48px" }}>
+    <div style={{ padding: "24px 28px 48px", maxWidth: 1320, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
       {/* ── Page Header ── */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -277,26 +277,68 @@ export function DemoStore({ onRecoveryTriggered }: DemoStoreProps): React.JSX.El
                 alignItems: "center",
                 gap: 6,
                 padding: "6px 12px",
-                borderRadius: 6,
-                border: `1px solid ${isSelected ? "var(--brand-border)" : "var(--border)"}`,
-                backgroundColor: isSelected ? "var(--brand-tint)" : "var(--bg-surface)",
-                color: isSelected ? "var(--brand)" : "var(--text-body)",
+                borderRadius: 8,
+                border: isSelected
+                  ? "1px solid rgba(15, 23, 42, 0.32)"
+                  : "1px solid var(--border)",
+                backgroundColor: isSelected ? "var(--bg-subtle)" : "var(--bg-surface)",
+                color: isSelected ? "var(--text-strong)" : "var(--text-body)",
+                boxShadow: isSelected
+                  ? "0 1px 3px -1px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.08)"
+                  : "none",
                 fontSize: 12,
-                fontWeight: isSelected ? 600 : 500,
                 cursor: "pointer",
-                transition: "all 0.12s ease",
+                transition: "all 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
                 whiteSpace: "nowrap",
+                userSelect: "none",
+              }}
+              onMouseEnter={(e) => {
+                if (!isSelected) {
+                  e.currentTarget.style.borderColor = "rgba(15, 23, 42, 0.22)";
+                  e.currentTarget.style.backgroundColor = "var(--bg-subtle)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isSelected) {
+                  e.currentTarget.style.borderColor = "var(--border)";
+                  e.currentTarget.style.backgroundColor = "var(--bg-surface)";
+                }
               }}
             >
-              <span>{cat.label}</span>
+              <span
+                style={{
+                  display: "inline-flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: isSelected ? 600 : 500,
+                }}
+              >
+                <span>{cat.label}</span>
+                {/* Invisible bold duplicate pre-reserves exact width preventing horizontal layout shift */}
+                <span
+                  style={{
+                    fontWeight: 600,
+                    height: 0,
+                    overflow: "hidden",
+                    visibility: "hidden",
+                    userSelect: "none",
+                  }}
+                  aria-hidden="true"
+                >
+                  {cat.label}
+                </span>
+              </span>
               <span
                 style={{
                   fontSize: 10.5,
-                  fontWeight: 700,
-                  padding: "1px 5px",
+                  fontWeight: 600,
+                  padding: "1px 6px",
                   borderRadius: 10,
-                  backgroundColor: isSelected ? "var(--brand)" : "var(--bg-subtle)",
-                  color: isSelected ? "#ffffff" : "var(--text-soft)",
+                  backgroundColor: isSelected ? "rgba(15, 23, 42, 0.10)" : "var(--bg-subtle)",
+                  border: isSelected ? "1px solid rgba(15, 23, 42, 0.12)" : "1px solid var(--border)",
+                  color: isSelected ? "var(--text-strong)" : "var(--text-soft)",
+                  transition: "all 0.15s ease",
                 }}
               >
                 {count}
@@ -410,14 +452,14 @@ function ProductCard({ product, onBuyClick }: ProductCardProps): React.JSX.Eleme
       onMouseLeave={() => setHovered(false)}
       style={{
         backgroundColor: "var(--bg-surface)",
-        border: `1px solid ${hovered ? product.accentColor : "var(--border)"}`,
+        border: `1px solid ${hovered ? `${product.accentColor}45` : "var(--border)"}`,
         borderRadius: 12,
         padding: "18px 20px",
         display: "flex",
         flexDirection: "column",
         gap: 12,
-        transition: "border-color 0.15s ease, box-shadow 0.15s ease",
-        boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.05)" : "none",
+        transition: "border-color 0.2s ease, box-shadow 0.2s ease",
+        boxShadow: hovered ? "0 4px 14px rgba(0,0,0,0.04)" : "none",
         cursor: "default",
       }}
     >

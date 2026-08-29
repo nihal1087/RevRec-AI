@@ -349,9 +349,9 @@ Analyze this message, identify intent and sentiment, extract any dates or discou
         workflowId: workflow.id,
         customerId: workflow.customerId,
         channel,
-        messageTemplate: "inbound_customer_reply",
+        messageTemplate: `hinglish_inbound_reply:::${userMessage}`,
         sentAt: new Date(),
-        customerResponse: userMessage,
+        customerResponse: null,
       },
     });
   }
