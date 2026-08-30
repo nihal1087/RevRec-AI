@@ -50,10 +50,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Razorpay-Signature");
   if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
+    res.sendStatus(200);
+    return;
   }
   next();
 });
+
 
 // ── STEP 1: Mount Webhook Route with express.raw() FIRST ─────────────────────
 // express.raw() reads the body as a raw Buffer and stops.
