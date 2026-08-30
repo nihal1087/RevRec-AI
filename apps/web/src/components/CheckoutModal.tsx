@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { X, CreditCard, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { X, CreditCard, Loader2, CheckCircle2, AlertCircle, Layers } from "lucide-react";
 import { RecoveryActivatedBanner } from "./RecoveryActivatedBanner";
+import { PillBadge } from "./PillBadge";
 
 // ── API Base URL ──────────────────────────────────────────────────────────────
 const API_BASE = import.meta.env.VITE_API_URL
@@ -236,12 +237,18 @@ export function CheckoutModal({
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-              <CreditCard size={16} style={{ color: "var(--text-soft)" }} />
+              {phase === "recovering" ? (
+                <Layers size={16} style={{ color: "var(--text-strong)" }} />
+              ) : (
+                <CreditCard size={16} style={{ color: "var(--text-soft)" }} />
+              )}
               <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-strong)" }}>
-                {phase === "recovering" ? "Recovery Engine Activated" : "Checkout"}
+                {phase === "recovering" ? "Autonomous Lifecycle Stepper" : "Checkout"}
               </span>
             </div>
-            {(phase === "confirm" || phase === "success" || phase === "failed") && (
+            {phase === "recovering" ? (
+              <PillBadge variant="neutral">ACTIVE</PillBadge>
+            ) : (
               <button
                 onClick={onClose}
                 style={{

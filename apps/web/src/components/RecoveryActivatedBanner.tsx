@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from "react";
 import {
   Zap,
-  CheckCircle2,
-  Clock,
-  ArrowRight,
-  ShieldCheck,
   Bot,
+  ShieldCheck,
+  Clock,
+  CheckCircle2,
+  ArrowRight,
 } from "lucide-react";
-import { PillBadge } from "./PillBadge";
+import { CategoryBadge } from "./PillBadge";
 
 interface RcaHint {
   category: string;
@@ -27,14 +27,12 @@ interface RecoveryActivatedBannerProps {
 
 interface TimelineStep {
   id: string;
-  label: string;
-  sublabel: string;
+  title: string;
+  desc: string;
+  timeOrStatus: string;
   icon: React.ElementType;
-  status: "done" | "active" | "pending";
-  delay: number; // ms after mount to become "done"
+  delay: number;
 }
-
-// ── Component ─────────────────────────────────────────────────────────────────
 
 export function RecoveryActivatedBanner({
   paymentId,
@@ -49,50 +47,57 @@ export function RecoveryActivatedBanner({
 
   const amountDisplay = `₹${Math.round(amountInPaise / 100).toLocaleString("en-IN")}`;
 
+  // Formatted local timestamp e.g. "01:08 pm"
+  const currentTime = new Date().toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  }).toLowerCase();
+
   const steps: TimelineStep[] = [
     {
       id: "fail",
-      label: "Payment Failed",
-      sublabel: `${errorCode} · ${amountDisplay}`,
+      title: "1. Payment Failed",
+      desc: `${errorCode} — ${amountDisplay}`,
+      timeOrStatus: currentTime,
       icon: Zap,
-      status: "done",
       delay: 0,
     },
     {
       id: "rca",
-      label: "RCA Classification",
-      sublabel: rcaHint?.label ?? "Analysing error code...",
+      title: "2. RCA Classification",
+      desc: rcaHint?.label ? `Diagnosed as ${rcaHint.label}` : "Diagnosed as SOFT Decline",
+      timeOrStatus: currentTime,
       icon: Bot,
-      status: "active",
-      delay: 600,
+      delay: 500,
     },
     {
       id: "compliance",
-      label: "Compliance Check",
-      sublabel: "RBI/TRAI dunning rules validated",
+      title: "3. Compliance & Policy Check",
+      desc: "TRAI quiet hours & RBI frequency limits validated (Passed)",
+      timeOrStatus: currentTime,
       icon: ShieldCheck,
-      status: "pending",
-      delay: 1400,
+      delay: 1200,
     },
     {
-      id: "retry",
-      label: rcaHint?.isRetryable ? "Retry Scheduled" : "Workflow Halted",
-      sublabel: rcaHint?.suggestedAction ?? "Determining next action...",
+      id: "outreach",
+      title: "4. Intervention & Strategy",
+      desc: rcaHint?.suggestedAction ?? "Smart retry sequence calculated",
+      timeOrStatus: "In-flight",
       icon: Clock,
-      status: "pending",
-      delay: 2200,
+      delay: 1900,
     },
     {
-      id: "audit",
-      label: "Audit Logged",
-      sublabel: "Immutable record written to ledger",
+      id: "resolution",
+      title: "5. Resolution Status",
+      desc: "Immutable audit record committed to recovery ledger",
+      timeOrStatus: "Active",
       icon: CheckCircle2,
-      status: "pending",
-      delay: 3000,
+      delay: 2600,
     },
   ];
 
-  // Animate steps completing over time
+  // Animate step progression
   useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
     steps.forEach((step) => {
@@ -121,66 +126,40 @@ export function RecoveryActivatedBanner({
       style={{
         opacity: dismissed ? 0 : 1,
         transition: "opacity 0.2s ease",
+        display: "flex",
+        flexDirection: "column",
+        gap: 16,
       }}
     >
-      {/* ── Header beacon ── */}
+      {/* ── Context Details Bar ── */}
       <div
         style={{
+          padding: "10px 12px",
+          backgroundColor: "var(--bg-subtle)",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
           display: "flex",
           alignItems: "center",
+          justifyContent: "space-between",
           gap: 10,
-          padding: "12px 14px",
-          backgroundColor: "#f0fdf4",
-          border: "1px solid #86efac",
-          borderRadius: 10,
-          marginBottom: 16,
         }}
       >
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            backgroundColor: "#16a34a",
-            flexShrink: 0,
-            boxShadow: "0 0 0 3px #bbf7d0",
-            animation: allDone ? "none" : "pulse-beacon 1.4s ease-in-out infinite",
-          }}
-        />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#14532d" }}>
-            ⚡ Recovery Engine Activated
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-strong)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {productName}
           </div>
-          <div style={{ fontSize: 11.5, color: "#166534", marginTop: 1 }}>
-            {productName} · {amountDisplay} · ID:{" "}
-            <code style={{ fontFamily: "monospace" }}>{paymentId.slice(0, 16)}...</code>
+          <div style={{ fontSize: 11, color: "var(--text-soft)", fontVariantNumeric: "tabular-nums" }}>
+            {amountDisplay} · <span style={{ fontFamily: "monospace" }}>{paymentId.slice(0, 15)}...</span>
           </div>
         </div>
+
+        {rcaHint?.category && (
+          <CategoryBadge category={rcaHint.category} prefix="RCA: " />
+        )}
       </div>
 
-      {/* ── RCA Category chip ── */}
-      {rcaHint && (
-        <div style={{ marginBottom: 16 }}>
-          <PillBadge
-            variant={
-              rcaHint.category === "SOFT"
-                ? "amber"
-                : rcaHint.category === "NETWORK"
-                ? "blue"
-                : rcaHint.category === "INTENT_DROP"
-                ? "purple"
-                : rcaHint.category === "HARD"
-                ? "red"
-                : "green"
-            }
-          >
-            RCA: {rcaHint.label.toUpperCase()}
-          </PillBadge>
-        </div>
-      )}
-
-      {/* ── Live timeline ── */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      {/* ── Stepper Items ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 0, marginTop: 2 }}>
         {steps.map((step, idx) => {
           const isDone = completedSteps.has(step.id);
           const Icon = step.icon;
@@ -188,64 +167,78 @@ export function RecoveryActivatedBanner({
 
           return (
             <div key={step.id} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-              {/* Left: icon + connector line */}
+              {/* Left: Icon + Connector */}
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
                 <div
                   style={{
-                    width: 28,
-                    height: 28,
+                    width: 24,
+                    height: 24,
                     borderRadius: "50%",
-                    backgroundColor: isDone ? "#f0fdf4" : "var(--bg-subtle)",
-                    border: `1.5px solid ${isDone ? "#86efac" : "var(--border)"}`,
+                    backgroundColor: isDone ? "var(--bg-subtle)" : "var(--bg-surface)",
+                    border: isDone
+                      ? "1px solid var(--border-strong, #cbd5e1)"
+                      : "1px solid var(--border)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    transition: "all 0.3s ease",
+                    transition: "all 0.25s ease",
                   }}
                 >
                   <Icon
-                    size={13}
+                    size={12}
                     style={{
-                      color: isDone ? "#059669" : "var(--text-faint)",
-                      transition: "color 0.3s ease",
+                      color: isDone ? "var(--text-strong)" : "var(--text-faint)",
+                      transition: "color 0.25s ease",
                     }}
                   />
                 </div>
+
                 {!isLast && (
                   <div
                     style={{
-                      width: 1.5,
-                      height: 22,
-                      backgroundColor: isDone ? "#86efac" : "var(--border)",
-                      transition: "background-color 0.4s ease",
+                      width: 1,
+                      height: 26,
+                      backgroundColor: "var(--border)",
+                      margin: "2px 0",
                     }}
                   />
                 )}
               </div>
 
-              {/* Right: text */}
-              <div style={{ paddingBottom: isLast ? 0 : 10, paddingTop: 4 }}>
-                <div
-                  style={{
-                    fontSize: 12.5,
-                    fontWeight: isDone ? 600 : 400,
-                    color: isDone ? "var(--text-strong)" : "var(--text-faint)",
-                    transition: "all 0.3s ease",
-                    lineHeight: 1.2,
-                  }}
-                >
-                  {step.label}
+              {/* Right: Title, Timestamp, Description */}
+              <div style={{ paddingBottom: isLast ? 0 : 12, paddingTop: 1, flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      color: isDone ? "var(--text-strong)" : "var(--text-faint)",
+                      transition: "color 0.25s ease",
+                    }}
+                  >
+                    {step.title}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: isDone ? "var(--text-soft)" : "var(--text-faint)",
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {step.timeOrStatus}
+                  </span>
                 </div>
-                <div
+                <p
                   style={{
-                    fontSize: 11,
-                    color: "var(--text-faint)",
-                    marginTop: 2,
+                    fontSize: 11.5,
+                    color: isDone ? "var(--text-soft)" : "var(--text-faint)",
+                    margin: "2px 0 0",
                     lineHeight: 1.4,
+                    transition: "color 0.25s ease",
                   }}
                 >
-                  {step.sublabel}
-                </div>
+                  {step.desc}
+                </p>
               </div>
             </div>
           );
@@ -253,36 +246,37 @@ export function RecoveryActivatedBanner({
       </div>
 
       {/* ── Footer ── */}
-      <div style={{ marginTop: 16, display: "flex", gap: 8, alignItems: "center" }}>
+      <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center" }}>
         {allDone ? (
-          <>
-            <button
-              onClick={handleDismiss}
-              style={{
-                flex: 1,
-                padding: "9px",
-                backgroundColor: "var(--brand)",
-                color: "#fff",
-                border: "none",
-                borderRadius: 8,
-                fontSize: 12.5,
-                fontWeight: 700,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-              }}
-            >
-              View in Recovery Ledger
-              <ArrowRight size={13} />
-            </button>
-          </>
+          <button
+            onClick={handleDismiss}
+            style={{
+              flex: 1,
+              padding: "10px 14px",
+              backgroundColor: "var(--brand, #0f172a)",
+              color: "#fff",
+              border: "none",
+              borderRadius: 8,
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              transition: "opacity 0.15s ease",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+          >
+            View in Recovery Ledger
+            <ArrowRight size={13} />
+          </button>
         ) : (
           <div
             style={{
               flex: 1,
-              padding: "9px",
+              padding: "10px 14px",
               backgroundColor: "var(--bg-subtle)",
               border: "1px solid var(--border)",
               borderRadius: 8,
