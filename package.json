@@ -15,6 +15,7 @@
     "db:migrate": "npm run db:migrate --workspace=packages/db",
     "db:seed": "npm run db:seed --workspace=packages/db",
     "build": "npm run build --workspace=packages/types && npm run db:generate && npm run build --workspace=packages/db && npm run build --workspace=apps/api && npm run build --workspace=apps/web",
+    "build:api": "npm run build --workspace=packages/types && npm run db:generate --workspace=packages/db && npm run build --workspace=packages/db && npm run build --workspace=apps/api",
     "start": "npm run start --workspace=apps/api",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
@@ -27,8 +28,14 @@
     "node": ">=20.0.0",
     "npm": ">=10.0.0"
   },
+  "dependencies": {
+    "prisma": "^5.22.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  },
   "devDependencies": {
     "concurrently": "^10.0.5"
   }
 }
+
 
