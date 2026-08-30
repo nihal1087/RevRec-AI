@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Search, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { WorkflowItem } from '../api/client';
-import { PillBadge, RiskBadge, PillVariant } from './PillBadge';
+import { RiskBadge, StageBadge, CategoryBadge as CategoryTag } from './PillBadge';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -26,56 +26,7 @@ interface WorkflowTableProps {
   onInspectWorkflow: (workflow: WorkflowItem) => void;
 }
 
-// ─── Stage badge helper ───────────────────────────────────────────────────────
 
-function StageBadge({ stage }: { stage: string }) {
-  const variantMap: Record<string, PillVariant> = {
-    RECOVERED: 'green',
-    RETRYING: 'blue',
-    OUTREACH_SENT: 'purple',
-    PROMISE_RECEIVED: 'teal',
-    HALTED: 'neutral',
-    ESCALATED: 'red',
-  };
-  const variant = variantMap[stage] ?? 'neutral';
-  const label =
-    stage === 'OUTREACH_SENT'
-      ? 'OUTREACH'
-      : stage === 'PROMISE_RECEIVED'
-      ? 'PTP'
-      : stage.charAt(0) + stage.slice(1).toLowerCase().replace(/_/g, ' ');
-
-  return (
-    <PillBadge variant={variant}>
-      {label}
-    </PillBadge>
-  );
-}
-
-// ─── Category tag helper ──────────────────────────────────────────────────────
-
-function CategoryTag({ category }: { category?: string | null }) {
-  const variantMap: Record<string, PillVariant> = {
-    SOFT: 'green',
-    HARD: 'red',
-    NETWORK: 'blue',
-    INTENT_DROP: 'amber',
-    MANDATE_FAILURE: 'purple',
-  };
-  const variant = category ? variantMap[category] ?? 'neutral' : 'neutral';
-  const label =
-    category === 'INTENT_DROP'
-      ? 'INTENT DROP'
-      : category === 'MANDATE_FAILURE'
-      ? 'MANDATE'
-      : category ?? 'UNKNOWN';
-
-  return (
-    <PillBadge variant={variant}>
-      {label}
-    </PillBadge>
-  );
-}
 
 // ─── Avatar initials ──────────────────────────────────────────────────────────
 
@@ -169,15 +120,7 @@ export function WorkflowTable({
     <div id="workflow-ledger-section" className="ds-card" style={{ overflow: 'hidden' }}>
       {/* ── Card Header ── */}
       <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '18px 24px',
-          borderBottom: '1px solid var(--border)',
-          flexWrap: 'wrap',
-          gap: 12,
-        }}
+        className="flex flex-col items-start justify-between gap-4 border-b border-[var(--border)] px-6 py-5 md:flex-row md:items-center"
       >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -201,7 +144,7 @@ export function WorkflowTable({
           </p>
         </div>
 
-        <div style={{ position: 'relative', width: 260 }}>
+        <div className="relative w-full md:w-[260px]">
           <Search
             size={14}
             style={{

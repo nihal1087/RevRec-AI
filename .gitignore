@@ -26,3 +26,9 @@ Thumbs.db
 
 # ─── Test Coverage ───────────────────────────────────────────────────────────
 coverage/
+
+# ─── Private Interview Notes & Internal Defense Docs ─────────────────────────
+docs/INTERVIEW_GUIDE.md
+docs/*interview*
+*interview_guide*
+

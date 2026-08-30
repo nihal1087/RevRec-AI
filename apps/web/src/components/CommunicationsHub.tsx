@@ -14,6 +14,8 @@ import {
   Volume2,
   CheckCheck,
   Check,
+  CheckCircle2,
+  CreditCard,
   MousePointerClick,
   AlertCircle,
   ChevronLeft,
@@ -75,6 +77,7 @@ export function CommunicationsHub({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date>(new Date());
   const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [simulatingWorkflowId, setSimulatingWorkflowId] = useState<string | null>(null);
 
   const PAGE_SIZE = 10;
   const totalPages = Math.max(1, Math.ceil(dispatches.length / PAGE_SIZE));
@@ -175,7 +178,7 @@ export function CommunicationsHub({
   };
 
   return (
-    <div style={{ padding: "20px 28px 48px", maxWidth: 1320, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
+    <div className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col px-4 py-5 pb-12 md:px-7 md:py-6">
       {/* ── Error Banner (M23 fix) ── */}
       {fetchError && (
         <div style={{
@@ -276,7 +279,7 @@ export function CommunicationsHub({
       </div>
 
       {/* ── Top Metric Bento Grid ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: 12, marginBottom: 20 }}>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4" style={{ marginBottom: 20 }}>
         <div style={{ padding: "16px 18px", backgroundColor: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-faint)", textTransform: "uppercase" }}>Total Dispatches</span>
           <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text-strong)", marginTop: 4, letterSpacing: "-0.02em" }}>
@@ -676,6 +679,60 @@ export function CommunicationsHub({
                       <Bot size={12} />
                       <span>Hinglish Bot</span>
                     </button>
+
+                    {item.channel === "WHATSAPP" && (
+                      <button
+                        className="ds-btn ds-btn-secondary"
+                        disabled={item.workflow?.stage === "RECOVERED" || simulatingWorkflowId === item.workflow?.id}
+                        title={item.workflow?.stage === "RECOVERED" ? "Payment has already been simulated and recovered" : "Simulate customer completing payment via link"}
+                        onClick={async () => {
+                          if (item.workflow?.stage === "RECOVERED" || !item.workflow?.id) return;
+                          try {
+                            setSimulatingWorkflowId(item.workflow.id);
+                            const res = await fetch(`/api/checkout/simulate-recovery`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ workflowId: item.workflow.id })
+                            });
+                            if (!res.ok) throw new Error('Failed to simulate recovery');
+                            setToastMessage({ type: 'success', text: 'Simulated customer payment via WhatsApp Link!' });
+                            setTimeout(() => setToastMessage(null), 3000);
+                            loadCommunications(); // refresh the list
+                          } catch (err) {
+                            console.error('[CommunicationsHub] Simulate payment error:', err);
+                            setToastMessage({ type: 'error', text: 'Failed to simulate payment.' });
+                            setTimeout(() => setToastMessage(null), 3000);
+                          } finally {
+                            setSimulatingWorkflowId(null);
+                          }
+                        }}
+                        style={{
+                          height: 28,
+                          padding: "0 11px",
+                          fontSize: 11.5,
+                          fontWeight: 600,
+                          borderRadius: 6,
+                          gap: 5,
+                          cursor: (item.workflow?.stage === "RECOVERED" || simulatingWorkflowId === item.workflow?.id) ? "not-allowed" : "pointer",
+                          opacity: item.workflow?.stage === "RECOVERED" ? 0.5 : simulatingWorkflowId === item.workflow?.id ? 0.7 : 1,
+                        }}
+                      >
+                        {simulatingWorkflowId === item.workflow?.id ? (
+                          <RefreshCw size={12} className="animate-spin" />
+                        ) : item.workflow?.stage === "RECOVERED" ? (
+                          <CheckCircle2 size={12} style={{ color: "var(--green)" }} />
+                        ) : (
+                          <CreditCard size={12} />
+                        )}
+                        <span>
+                          {simulatingWorkflowId === item.workflow?.id
+                            ? "Processing..."
+                            : item.workflow?.stage === "RECOVERED"
+                            ? "Payment Recovered"
+                            : "Simulate Payment"}
+                        </span>
+                      </button>
+                    )}
 
                     {item.workflow && (
                       <button

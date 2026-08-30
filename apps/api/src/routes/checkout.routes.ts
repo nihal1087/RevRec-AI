@@ -22,7 +22,7 @@ import { retryExecutionQueue } from "../queues/retryExecution.queue";
 import { classifyPaymentFailure } from "../services/rca.service";
 import { evaluateCustomerRisk } from "../services/customerRisk.service";
 import { calculateNextRetrySchedule } from "../services/retrySequencer.service";
-import { prisma, PaymentStatus, RecoveryStage, AuditEventType, DeclineCategory, Prisma } from "@revrec/db";
+import { prisma, PaymentStatus, RecoveryStage, AuditEventType, DeclineCategory, RecoveryMethod, PromiseStatus, Prisma } from "@revrec/db";
 import { logger } from "../config/logger";
 
 const router = Router();
@@ -294,6 +294,8 @@ router.post(
           opts: { delay: number; jobId: string };
         } | null = null;
 
+        let pendingAgentDecision = false;
+
         if (rcaResult.isRetryable) {
           const retrySchedule = calculateNextRetrySchedule({
             category: rcaResult.category,
@@ -373,9 +375,12 @@ router.post(
               outcome: "HALTED",
             },
           });
+        } else {
+          // Trigger the AI agent immediately for INTENT_DROP or MANDATE failures
+          pendingAgentDecision = true;
         }
 
-        return { wf, pendingRetry };
+        return { wf, pendingRetry, pendingAgentDecision };
       });
 
       if (workflow.pendingRetry) {
@@ -387,6 +392,23 @@ router.post(
           );
         } catch (queueErr) {
           logger.warn(`[Checkout] Could not enqueue retry job to BullMQ: ${(queueErr as Error).message}`);
+        }
+      } else if (workflow.pendingAgentDecision) {
+        try {
+          const { paymentEventsQueue } = await import("../queues/paymentEvents.queue");
+          await paymentEventsQueue.add(
+            "agent.decide",
+            {
+              eventId: `agent_escalation:${workflow.wf.id}:${Date.now()}`,
+              eventType: "agent.decide",
+              gateway: "internal",
+              rawPayload: { workflowId: workflow.wf.id, trigger: "intent_drop_or_mandate" },
+              receivedAt: new Date().toISOString(),
+            },
+            { jobId: `agent_decide_${workflow.wf.id}`, delay: 1000 }
+          );
+        } catch (queueErr) {
+          logger.warn(`[Checkout] Could not enqueue agent.decide job to BullMQ: ${(queueErr as Error).message}`);
         }
       }
 
@@ -481,5 +503,119 @@ function getRcaHint(errorCode: string): {
     suggestedAction: "Smart retry scheduled based on salary-cycle alignment.",
   };
 }
+
+/**
+ * POST /api/checkout/simulate-recovery
+ * Simulates the customer successfully paying via the WhatsApp link or customer portal.
+ * Updates the workflow to RECOVERED, sets payment status to CAPTURED,
+ * fulfills any active PromiseToPay, marks dunning messages as clicked, and logs an audit event.
+ */
+router.post("/simulate-recovery", async (req: Request, res: Response) => {
+  try {
+    const { workflowId } = req.body;
+    if (!workflowId) {
+      res.status(400).json({ error: "workflowId is required" });
+      return;
+    }
+
+    const workflow = await prisma.recoveryWorkflow.findUnique({
+      where: { id: workflowId },
+      include: {
+        dunningContacts: { orderBy: { sentAt: "desc" } },
+        promiseToPays: { where: { status: PromiseStatus.ACTIVE } },
+      },
+    });
+
+    if (!workflow) {
+      res.status(404).json({ error: "Workflow not found" });
+      return;
+    }
+
+    if (workflow.stage === RecoveryStage.RECOVERED) {
+      res.json({ success: true, message: "Workflow is already recovered." });
+      return;
+    }
+
+    const now = new Date();
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Update workflow to RECOVERED
+      await tx.recoveryWorkflow.update({
+        where: { id: workflowId },
+        data: {
+          stage: RecoveryStage.RECOVERED,
+          amountRecoveredInPaise: workflow.amountAtRiskInPaise,
+          recoveryMethod: workflow.promiseToPays.length > 0
+            ? RecoveryMethod.PROMISE_TO_PAY_FULFILLED
+            : RecoveryMethod.CUSTOMER_LINK_CLICK,
+          version: { increment: 1 },
+        },
+      });
+
+      // 2. Mark payment CAPTURED
+      await tx.payment.update({
+        where: { id: workflow.paymentId },
+        data: { status: PaymentStatus.CAPTURED },
+      });
+
+      // 3. Mark active dunning contacts as delivered, opened, and clicked
+      for (const contact of workflow.dunningContacts) {
+        await tx.dunningContact.update({
+          where: { id: contact.id },
+          data: {
+            deliveredAt: contact.deliveredAt ?? new Date(contact.sentAt.getTime() + 2000),
+            openedAt: contact.openedAt ?? new Date(contact.sentAt.getTime() + 15000),
+            clickedAt: contact.clickedAt ?? now,
+          },
+        });
+      }
+
+      // 4. Fulfill active PromiseToPay if any
+      for (const promise of workflow.promiseToPays) {
+        await tx.promiseToPay.update({
+          where: { id: promise.id },
+          data: {
+            status: PromiseStatus.FULFILLED,
+            fulfilledAt: now,
+          },
+        });
+      }
+
+      // 5. Append immutable AuditLog event
+      await tx.auditLog.create({
+        data: {
+          eventType: AuditEventType.WORKFLOW_RECOVERED,
+          workflowId: workflow.id,
+          paymentId: workflow.paymentId,
+          customerId: workflow.customerId,
+          actorType: "CUSTOMER",
+          actorId: workflow.customerId,
+          payload: {
+            source: "WhatsApp 1-Click Recovery Link",
+            method: workflow.promiseToPays.length > 0 ? "PROMISE_TO_PAY_FULFILLED" : "CUSTOMER_LINK_CLICK",
+            channel: "WHATSAPP",
+            amountRecoveredInPaise: Number(workflow.amountAtRiskInPaise),
+            settledAt: now.toISOString(),
+          },
+          previousStage: workflow.stage,
+          newStage: RecoveryStage.RECOVERED,
+          amountInPaise: workflow.amountAtRiskInPaise,
+          outcome: "SUCCESS",
+        },
+      });
+    });
+
+    logger.info(`[Checkout] 💰 Payment simulated as RECOVERED for workflow ${workflowId} (₹${Number(workflow.amountAtRiskInPaise) / 100})`);
+
+    res.json({
+      success: true,
+      message: "Payment successfully recovered! All metrics and ledger updated.",
+      workflowId,
+    });
+  } catch (error) {
+    logger.error("[Checkout] Failed to simulate recovery:", error);
+    res.status(500).json({ error: "Failed to simulate recovery" });
+  }
+});
 
 export { router as checkoutRouter };

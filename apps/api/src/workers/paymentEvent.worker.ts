@@ -286,6 +286,20 @@ async function handlePaymentFailed(
             outcome: "HALTED",
           },
         });
+      } else {
+        // Trigger the AI agent immediately for INTENT_DROP or MANDATE failures
+        jobToSchedule = {
+          name: "agent.decide",
+          data: {
+            workflowId: workflow.id,
+            paymentId: payment.id,
+            customerId: customer.id,
+            attemptNumber: 0,
+            scheduledFor: new Date().toISOString(),
+            strategyUsed: "immediate_escalation",
+          },
+          opts: { delay: 1000, jobId: `agent_decide_${workflow.id}` },
+        };
       }
     }
 
@@ -317,11 +331,26 @@ async function handlePaymentFailed(
 
   // Enqueue delayed job into BullMQ OUTSIDE the database transaction
   if (pendingRetryJob) {
-    await retryExecutionQueue.add(
-      pendingRetryJob.name,
-      pendingRetryJob.data,
-      pendingRetryJob.opts
-    );
+    if (pendingRetryJob.name === "agent.decide") {
+      const { paymentEventsQueue } = await import("../queues/paymentEvents.queue");
+      await paymentEventsQueue.add(
+        "agent.decide",
+        {
+          eventId: `agent_escalation:${pendingRetryJob.data.workflowId}:${Date.now()}`,
+          eventType: "agent.decide",
+          gateway: "internal",
+          rawPayload: { workflowId: pendingRetryJob.data.workflowId, trigger: "intent_drop_or_mandate" },
+          receivedAt: new Date().toISOString(),
+        },
+        pendingRetryJob.opts
+      );
+    } else {
+      await retryExecutionQueue.add(
+        pendingRetryJob.name,
+        pendingRetryJob.data,
+        pendingRetryJob.opts
+      );
+    }
   }
 
   logger.info(`[Worker] ✅ Processed payment failure ${externalId} with RCA category ${rcaResult.category}`);

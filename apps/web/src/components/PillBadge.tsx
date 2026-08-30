@@ -159,4 +159,38 @@ export function RiskBadge({
   );
 }
 
+export function StageBadge({ stage, className = "", style = {} }: { stage?: string | null, className?: string, style?: React.CSSProperties }) {
+  if (!stage) return <PillBadge variant="neutral" className={className} style={style}>UNKNOWN</PillBadge>;
+  const normalized = stage.toUpperCase();
+  let variant: PillVariant = "neutral";
+  if (normalized === "RECOVERED" || normalized === "SUCCESS" || normalized === "COMPLETED") variant = "green";
+  else if (normalized === "RETRYING" || normalized === "IN_PROGRESS" || normalized === "ACTIVE") variant = "blue";
+  else if (normalized === "OUTREACH_SENT") variant = "purple";
+  else if (normalized === "PROMISE_RECEIVED") variant = "teal";
+  else if (normalized === "ESCALATED" || normalized === "FAILED" || normalized === "ERROR") variant = "red";
+  
+  return (
+    <PillBadge variant={variant} className={className} style={style}>
+      {stage.replace(/_/g, " ")}
+    </PillBadge>
+  );
+}
+
+export function CategoryBadge({ category, className = "", style = {}, prefix = "" }: { category?: string | null, className?: string, style?: React.CSSProperties, prefix?: string }) {
+  if (!category) return <PillBadge variant="neutral" className={className} style={style}>{prefix}UNKNOWN</PillBadge>;
+  const normalized = category.toUpperCase();
+  let variant: PillVariant = "neutral";
+  if (normalized === "SOFT") variant = "green";
+  else if (normalized === "NETWORK") variant = "blue";
+  else if (normalized === "INTENT_DROP") variant = "amber";
+  else if (normalized === "MANDATE_FAILURE") variant = "purple";
+  else if (normalized === "HARD" || normalized === "FRAUD") variant = "red";
+  
+  return (
+    <PillBadge variant={variant} className={className} style={style}>
+      {prefix}{category.replace(/_/g, " ")}
+    </PillBadge>
+  );
+}
+
 export default PillBadge;

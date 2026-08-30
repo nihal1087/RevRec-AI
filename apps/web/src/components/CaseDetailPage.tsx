@@ -14,6 +14,8 @@ import {
   AlertCircle,
   CheckCircle2,
   Check,
+  CreditCard,
+  RefreshCw,
   X,
   Phone,
   Mail,
@@ -23,7 +25,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
-import { PillBadge, RiskBadge } from "./PillBadge";
+import { PillBadge, RiskBadge, StageBadge, CategoryBadge } from "./PillBadge";
 
 interface CaseDetailPageProps {
   workflow: WorkflowItem;
@@ -50,6 +52,11 @@ export function CaseDetailPage({
   const auditEntries = workflow.auditEntries ?? [];
   const dunningContacts = workflow.dunningContacts ?? [];
   const promiseToPays = workflow.promiseToPays ?? [];
+
+  useEffect(() => {
+    setActionMessage(null);
+    setExpandedPayloadId(null);
+  }, [workflow.id]);
 
   useEffect(() => {
     if (!actionMessage) return;
@@ -83,13 +90,52 @@ export function CaseDetailPage({
     try {
       setIsEvaluating(true);
       setActionMessage(null);
-      await triggerAgentDecision(workflow.id);
-      setActionMessage({ text: "Bounded AI Agent evaluated case & executed approved tool.", type: "success" });
+      const res = await triggerAgentDecision(workflow.id);
+      const toolName = res.decision?.selectedTool || "Tool";
+      const confidence = res.decision?.confidenceScore ? `${Math.round(res.decision.confidenceScore * 100)}%` : "";
+      
+      if (res.policyPassed) {
+        setActionMessage({
+          text: `AI evaluated case: Selected ${toolName} (${confidence} confidence) and executed action.`,
+          type: "success",
+        });
+      } else if (res.policyDetails?.includes("Action bypassed")) {
+        setActionMessage({
+          text: res.policyDetails,
+          type: "success",
+        });
+      } else {
+        setActionMessage({
+          text: `Policy guard active: ${res.policyDetails || 'Action bounded by compliance rules'}.`,
+          type: "success",
+        });
+      }
       onRefresh();
     } catch (err) {
       setActionMessage({ text: `Error: ${(err as Error).message}`, type: "error" });
     } finally {
       setIsEvaluating(false);
+    }
+  };
+
+  const [isSimulatingPayment, setIsSimulatingPayment] = useState(false);
+
+  const handleSimulatePayment = async () => {
+    try {
+      setIsSimulatingPayment(true);
+      setActionMessage(null);
+      const res = await fetch("/api/checkout/simulate-recovery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workflowId: workflow.id }),
+      });
+      if (!res.ok) throw new Error("Failed to simulate recovery");
+      setActionMessage({ text: "Simulated customer payment via WhatsApp Link! Revenue recovered.", type: "success" });
+      onRefresh();
+    } catch (err) {
+      setActionMessage({ text: `Error: ${(err as Error).message}`, type: "error" });
+    } finally {
+      setIsSimulatingPayment(false);
     }
   };
 
@@ -185,63 +231,84 @@ export function CaseDetailPage({
             onClick={handleManualRetry}
             disabled={isRetrying || workflow.stage === "RECOVERED" || workflow.stage === "HALTED" || workflow.payment.declineCategory === "HARD"}
             title={workflow.stage === "HALTED" || workflow.payment.declineCategory === "HARD" ? "Retry disabled: hard decline or halted workflow (RBI compliance)" : undefined}
+            className="ds-btn ds-btn-secondary"
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "7px 14px",
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-              backgroundColor: "var(--bg-surface)",
-              color: "var(--text-strong)",
+              height: 35,
+              padding: "0 14px",
               fontSize: 12.5,
               fontWeight: 600,
+              borderRadius: 8,
+              gap: 6,
               cursor: (workflow.stage === "RECOVERED" || workflow.stage === "HALTED" || workflow.payment.declineCategory === "HARD") ? "not-allowed" : "pointer",
               opacity: (isRetrying || workflow.stage === "RECOVERED" || workflow.stage === "HALTED" || workflow.payment.declineCategory === "HARD") ? 0.45 : 1,
             }}
           >
-            <Zap size={14} />
-            {isRetrying ? "Dispatching..." : "Force Retry Now"}
+            {isRetrying ? <RefreshCw size={13} className="animate-spin" /> : <Zap size={14} />}
+            <span>{isRetrying ? "Dispatching..." : "Force Retry Now"}</span>
           </button>
 
           <button
             onClick={handleRunAgent}
             disabled={isEvaluating || workflow.stage === "RECOVERED" || workflow.stage === "HALTED"}
             title={workflow.stage === "HALTED" ? "AI agent disabled on halted workflows" : undefined}
+            className="ds-btn ds-btn-secondary"
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "7px 14px",
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-              backgroundColor: "var(--bg-surface)",
-              color: "var(--text-strong)",
+              height: 35,
+              padding: "0 14px",
               fontSize: 12.5,
               fontWeight: 600,
+              borderRadius: 8,
+              gap: 6,
               cursor: (workflow.stage === "RECOVERED" || workflow.stage === "HALTED") ? "not-allowed" : "pointer",
               opacity: (isEvaluating || workflow.stage === "RECOVERED" || workflow.stage === "HALTED") ? 0.45 : 1,
             }}
           >
-            <Bot size={14} />
-            {isEvaluating ? "Evaluating..." : "Run AI Decision"}
+            {isEvaluating ? <RefreshCw size={13} className="animate-spin" /> : <Bot size={14} />}
+            <span>{isEvaluating ? "Evaluating..." : "Run AI Decision"}</span>
+          </button>
+
+          <button
+            onClick={handleSimulatePayment}
+            disabled={isSimulatingPayment || workflow.stage === "RECOVERED"}
+            title={workflow.stage === "RECOVERED" ? "Payment has already been simulated and recovered" : "Simulate customer clicking payment link and completing transaction"}
+            className="ds-btn ds-btn-secondary"
+            style={{
+              height: 35,
+              padding: "0 14px",
+              fontSize: 12.5,
+              fontWeight: 600,
+              borderRadius: 8,
+              gap: 6,
+              cursor: (workflow.stage === "RECOVERED" || isSimulatingPayment) ? "not-allowed" : "pointer",
+              opacity: workflow.stage === "RECOVERED" ? 0.55 : isSimulatingPayment ? 0.7 : 1,
+            }}
+          >
+            {isSimulatingPayment ? (
+              <RefreshCw size={13} className="animate-spin" />
+            ) : workflow.stage === "RECOVERED" ? (
+              <CheckCircle2 size={14} style={{ color: "var(--green)" }} />
+            ) : (
+              <CreditCard size={14} />
+            )}
+            <span>
+              {workflow.stage === "RECOVERED"
+                ? "Payment Recovered"
+                : isSimulatingPayment
+                ? "Processing Payment..."
+                : "Simulate Payment"}
+            </span>
           </button>
 
           <button
             onClick={() => onOpenBotForCustomer(workflow.customer.id, workflow.id)}
+            className="ds-btn ds-btn-primary"
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "7px 14px",
-              borderRadius: 8,
-              border: "none",
-              backgroundColor: "var(--brand)",
-              color: "#ffffff",
+              height: 35,
+              padding: "0 14px",
               fontSize: 12.5,
               fontWeight: 600,
-              cursor: "pointer",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+              borderRadius: 8,
+              gap: 6,
             }}
           >
             <MessageSquare size={14} />
@@ -335,53 +402,9 @@ export function CaseDetailPage({
                 <span>{copied ? "Copied!" : "Copy ID"}</span>
               </button>
 
-              <PillBadge
-                variant={
-                  workflow.stage === "RECOVERED"
-                    ? "green"
-                    : workflow.stage === "RETRYING"
-                    ? "blue"
-                    : workflow.stage === "OUTREACH_SENT"
-                    ? "purple"
-                    : workflow.stage === "PROMISE_RECEIVED"
-                    ? "teal"
-                    : workflow.stage === "ESCALATED"
-                    ? "red"
-                    : "neutral"
-                }
-              >
-                {workflow.stage.replace(/_/g, " ")}
-              </PillBadge>
-
-              <PillBadge
-                variant={
-                  workflow.payment.declineCategory === "SOFT"
-                    ? "green"
-                    : workflow.payment.declineCategory === "NETWORK"
-                    ? "blue"
-                    : workflow.payment.declineCategory === "INTENT_DROP"
-                    ? "amber"
-                    : workflow.payment.declineCategory === "MANDATE_FAILURE"
-                    ? "purple"
-                    : workflow.payment.declineCategory === "HARD"
-                    ? "red"
-                    : "neutral"
-                }
-              >
-                RCA: {workflow.payment.declineCategory ?? "SOFT"}
-              </PillBadge>
-
-              <PillBadge
-                variant={
-                  (workflow.customer.riskTier ?? "LOW") === "LOW"
-                    ? "green"
-                    : (workflow.customer.riskTier ?? "LOW") === "MEDIUM"
-                    ? "amber"
-                    : "red"
-                }
-              >
-                {workflow.customer.riskTier ?? "LOW"} RISK
-              </PillBadge>
+              <StageBadge stage={workflow.stage} />
+              <CategoryBadge category={workflow.payment.declineCategory ?? "SOFT"} prefix="RCA: " />
+              <RiskBadge tier={workflow.customer.riskTier ?? "LOW"} />
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 13, color: "var(--text-soft)" }}>
@@ -735,35 +758,52 @@ export function CaseDetailPage({
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {promiseToPays.map((p) => (
-                <div
-                  key={p.id}
-                  style={{
-                    padding: "12px 14px",
-                    backgroundColor: "#f0fdfa",
-                    border: "1px solid #ccfbf1",
-                    borderRadius: 8,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 6,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#0f766e" }}>
-                      ₹{Math.round(p.promisedAmountInPaise / 100).toLocaleString("en-IN")}
-                    </span>
-                    <PillBadge variant="teal">
-                      {p.status}
-                    </PillBadge>
+              {promiseToPays.map((p) => {
+                const isValidDate = p.promisedAt && !isNaN(new Date(p.promisedAt).getTime());
+                const isValidScore = typeof p.confidenceScore === "number" && !isNaN(p.confidenceScore);
+
+                return (
+                  <div
+                    key={p.id}
+                    style={{
+                      padding: "16px",
+                      backgroundColor: "var(--bg-surface)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 10,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 12,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div>
+                        <span style={{ fontSize: 11, color: "var(--text-soft)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600, display: "block", marginBottom: 2 }}>
+                          Promised Amount
+                        </span>
+                        <span style={{ fontSize: 16, fontWeight: 700, color: "var(--text-strong)" }}>
+                          {p.promisedAmountInPaise ? `₹${(p.promisedAmountInPaise / 100).toLocaleString("en-IN")}` : "₹0"}
+                        </span>
+                      </div>
+                      <StageBadge stage={p.status} />
+                    </div>
+                    
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 12, borderTop: "1px dashed var(--border)" }}>
+                      <div>
+                        <span style={{ fontSize: 11, color: "var(--text-soft)", display: "block", marginBottom: 2 }}>Promised Date</span>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-strong)" }}>
+                          {isValidDate ? new Date(p.promisedAt).toLocaleDateString("en-IN", { month: "short", day: "numeric", year: "numeric" }) : "N/A"}
+                        </span>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <span style={{ fontSize: 11, color: "var(--text-soft)", display: "block", marginBottom: 2 }}>AI Confidence</span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: isValidScore && p.confidenceScore >= 0.7 ? "var(--brand)" : "var(--text-strong)" }}>
+                          {isValidScore ? `${(p.confidenceScore * 100).toFixed(0)}%` : "N/A"}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ fontSize: 12, color: "#134e4a" }}>
-                    Promised Date: <strong>{new Date(p.promisedAt).toLocaleDateString("en-IN", { month: "long", day: "numeric", year: "numeric" })}</strong>
-                  </div>
-                  <div style={{ fontSize: 11, color: "#0d9488" }}>
-                    AI Confidence Score: {(p.confidenceScore * 100).toFixed(0)}%
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -861,23 +901,135 @@ export function CaseDetailPage({
 
                       {isExpanded && log.payload && (
                         <tr>
-                          <td colSpan={5} style={{ padding: "12px 18px", backgroundColor: "#f8fafc", borderBottom: "1px solid var(--border)" }}>
-                            <pre
-                              style={{
-                                margin: 0,
-                                padding: "10px 14px",
-                                backgroundColor: "var(--bg-surface)",
-                                border: "1px solid var(--border)",
-                                borderRadius: 6,
-                                fontSize: 11,
-                                fontFamily: "monospace",
-                                color: "var(--text-body)",
-                                maxHeight: 200,
-                                overflowY: "auto",
-                              }}
-                            >
-                              {JSON.stringify(log.payload, null, 2)}
-                            </pre>
+                          <td colSpan={5} style={{ padding: "12px 18px", backgroundColor: "var(--bg-subtle)", borderBottom: "1px solid var(--border)" }}>
+                            {log.eventType === "AGENT_DECISION_MADE" && typeof log.payload === "object" ? (
+                              <div
+                                style={{
+                                  backgroundColor: "var(--bg-surface)",
+                                  border: "1px solid var(--border)",
+                                  borderRadius: 10,
+                                  padding: "16px 20px",
+                                  boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--text-faint)", letterSpacing: "0.05em" }}>
+                                      AI Decision Summary
+                                    </span>
+                                    {Boolean((log.payload as Record<string, unknown>).selectedTool) && (
+                                      <code
+                                        style={{
+                                          fontFamily: "monospace",
+                                          fontSize: 11.5,
+                                          backgroundColor: "var(--bg-subtle)",
+                                          color: "var(--text-strong)",
+                                          padding: "3px 8px",
+                                          borderRadius: 6,
+                                          border: "1px solid var(--border)",
+                                          fontWeight: 600,
+                                        }}
+                                      >
+                                        {String((log.payload as Record<string, unknown>).selectedTool)}
+                                      </code>
+                                    )}
+                                  </div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, flexWrap: "wrap" }}>
+                                    {(log.payload as Record<string, unknown>).confidence !== undefined && (
+                                      <span style={{ color: "var(--text-soft)" }}>
+                                        Confidence: <strong style={{ color: "var(--text-strong)" }}>{Math.round(Number((log.payload as Record<string, unknown>).confidence) * 100)}%</strong>
+                                      </span>
+                                    )}
+                                    {(log.payload as Record<string, unknown>).policyPassed !== undefined && (
+                                      <PillBadge variant={(log.payload as Record<string, unknown>).policyPassed ? "green" : "red"}>
+                                        {(log.payload as Record<string, unknown>).policyPassed ? "Policy Passed" : "Policy Rejected"}
+                                      </PillBadge>
+                                    )}
+                                    {(log.payload as Record<string, unknown>).latencyMs !== undefined && (
+                                      <span style={{ color: "var(--text-faint)", fontFamily: "monospace", fontSize: 11.5 }}>
+                                        ⚡ {Number((log.payload as Record<string, unknown>).latencyMs)}ms
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {Boolean((log.payload as Record<string, unknown>).reasoning) && (
+                                  <div
+                                    style={{
+                                      backgroundColor: "var(--bg-subtle)",
+                                      borderRadius: 8,
+                                      padding: "12px 14px",
+                                      border: "1px solid var(--border)",
+                                      marginBottom: 12,
+                                    }}
+                                  >
+                                    <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", color: "var(--text-faint)", display: "block", marginBottom: 4, letterSpacing: "0.04em" }}>
+                                      Autonomous Reasoning
+                                    </span>
+                                    <p style={{ margin: 0, fontSize: 12.5, color: "var(--text-body)", lineHeight: 1.6, whiteSpace: "normal" }}>
+                                      "{String((log.payload as Record<string, unknown>).reasoning)}"
+                                    </p>
+                                  </div>
+                                )}
+
+                                <details style={{ fontSize: 11 }}>
+                                  <summary style={{ cursor: "pointer", color: "var(--text-soft)", fontWeight: 500, userSelect: "none" }}>
+                                    View Full JSON Parameters
+                                  </summary>
+                                  <pre
+                                    style={{
+                                      margin: "8px 0 0",
+                                      padding: "10px 14px",
+                                      backgroundColor: "var(--bg-subtle)",
+                                      border: "1px solid var(--border)",
+                                      borderRadius: 6,
+                                      fontSize: 11,
+                                      fontFamily: "monospace",
+                                      color: "var(--text-body)",
+                                      maxHeight: 180,
+                                      overflowY: "auto",
+                                      overflowX: "auto",
+                                      whiteSpace: "pre-wrap",
+                                      wordBreak: "break-word",
+                                    }}
+                                  >
+                                    {JSON.stringify(log.payload, null, 2)}
+                                  </pre>
+                                </details>
+                              </div>
+                            ) : (
+                              <div
+                                style={{
+                                  backgroundColor: "var(--bg-surface)",
+                                  border: "1px solid var(--border)",
+                                  borderRadius: 8,
+                                  padding: "12px 16px",
+                                }}
+                              >
+                                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--text-faint)", marginBottom: 8, letterSpacing: "0.04em" }}>
+                                  Payload Attributes
+                                </div>
+                                <pre
+                                  style={{
+                                    margin: 0,
+                                    padding: "10px 14px",
+                                    backgroundColor: "var(--bg-subtle)",
+                                    border: "1px solid var(--border)",
+                                    borderRadius: 6,
+                                    fontSize: 11.5,
+                                    fontFamily: "monospace",
+                                    color: "var(--text-body)",
+                                    maxHeight: 200,
+                                    overflowY: "auto",
+                                    overflowX: "auto",
+                                    whiteSpace: "pre-wrap",
+                                    wordBreak: "break-word",
+                                  }}
+                                >
+                                  {JSON.stringify(log.payload, null, 2)}
+                                </pre>
+                              </div>
+                            )}
                           </td>
                         </tr>
                       )}

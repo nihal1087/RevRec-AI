@@ -5,12 +5,15 @@ import {
   Sparkles,
   ShoppingBag,
   MessageSquare,
+  X,
 } from "lucide-react";
 import { PillBadge } from "./PillBadge";
 
 interface SidebarProps {
   activeTab?: string;
   onSelectTab?: (tab: string) => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 interface NavItem {
@@ -30,6 +33,8 @@ interface NavGroup {
 export function Sidebar({
   activeTab = "overview",
   onSelectTab,
+  isOpen = false,
+  onClose,
 }: SidebarProps): React.JSX.Element {
   const navItems: NavGroup[] = [
     {
@@ -41,8 +46,8 @@ export function Sidebar({
           icon: LayoutDashboard,
           onClick: () => {
             onSelectTab?.("overview");
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          },
+            onClose?.();
+          }
         },
         {
           id: "workflows",
@@ -50,18 +55,18 @@ export function Sidebar({
           icon: Layers,
           onClick: () => {
             onSelectTab?.("workflows");
-            setTimeout(() => {
-              const el = document.getElementById("workflow-ledger-section");
-              el?.scrollIntoView({ behavior: "smooth" });
-            }, 60);
-          },
+            onClose?.();
+          }
         },
         {
           id: "communications",
           label: "Communications Hub",
           icon: MessageSquare,
           badge: "Live",
-          onClick: () => onSelectTab?.("communications"),
+          onClick: () => {
+            onSelectTab?.("communications");
+            onClose?.();
+          }
         },
       ],
     },
@@ -73,7 +78,10 @@ export function Sidebar({
           label: "Live Demo Store",
           icon: ShoppingBag,
           badge: "New",
-          onClick: () => onSelectTab?.("demo"),
+          onClick: () => {
+            onSelectTab?.("demo");
+            onClose?.();
+          }
         },
         {
           id: "simulation",
@@ -81,52 +89,46 @@ export function Sidebar({
           icon: Sparkles,
           onClick: () => {
             onSelectTab?.("simulation");
-            setTimeout(() => {
-              const el = document.getElementById("simulation-cockpit-section");
-              el?.scrollIntoView({ behavior: "smooth" });
-            }, 60);
-          },
+            onClose?.();
+          }
         },
       ],
     },
   ];
 
   return (
-    <aside
-      style={{
-        width: 240,
-        height: "100vh",
-        position: "sticky",
-        top: 0,
-        backgroundColor: "var(--bg-surface)",
-        borderRight: "1px solid var(--border)",
-        display: "flex",
-        flexDirection: "column",
-        flexShrink: 0,
-        zIndex: 30,
-      }}
-    >
+    <>
+      {/* ── Mobile Overlay ── */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm md:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 right-0 z-50 flex h-[100dvh] w-[240px] shrink-0 flex-col border-l transform transition-transform duration-300 ease-in-out md:left-0 md:right-auto md:border-l-0 md:border-r md:sticky md:top-0 md:translate-x-0 ${
+          isOpen ? "translate-x-0" : "translate-x-full"
+        }`}
+        style={{
+          backgroundColor: "var(--bg-surface)",
+          borderColor: "var(--border)",
+        }}
+      >
       {/* ── Brand Header (Clickable Home / Overview) ── */}
       <div
-        onClick={() => {
-          onSelectTab?.("overview");
-          window.scrollTo({ top: 0, behavior: "smooth" });
-        }}
-        title="Return to Overview"
-        style={{
-          height: 64,
-          padding: "0 20px",
-          display: "flex",
-          alignItems: "center",
-          borderBottom: "1px solid var(--border)",
-          cursor: "pointer",
-          userSelect: "none",
-          transition: "background-color 0.12s ease",
-        }}
-        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--bg-subtle)")}
-        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+        className="hidden md:flex h-[64px] px-[20px] items-center justify-between border-b border-[var(--border)] transition-colors"
       >
-        <div style={{ display: "flex", flexDirection: "column" }}>
+        <div
+          className="flex flex-col flex-1 cursor-pointer"
+          onClick={() => {
+            onSelectTab?.("overview");
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            onClose?.();
+          }}
+          title="Return to Overview"
+        >
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span
               style={{
@@ -168,8 +170,18 @@ export function Sidebar({
           display: "flex",
           flexDirection: "column",
           gap: 20,
+          position: "relative",
         }}
       >
+        {/* Mobile Close Button */}
+        <div className="md:hidden flex justify-end mb-[-8px]">
+          <button 
+            onClick={onClose}
+            className="flex items-center justify-center rounded-md p-1.5 text-[var(--text-soft)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-strong)]"
+          >
+            <X size={18} />
+          </button>
+        </div>
         {navItems.map((group, idx) => (
           <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             <span
@@ -296,6 +308,7 @@ export function Sidebar({
         </div>
       </div>
     </aside>
+    </>
   );
 }
 

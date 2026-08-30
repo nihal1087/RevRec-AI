@@ -248,7 +248,7 @@ export function HinglishBotSimulator({
         style={{
           position: "fixed",
           bottom: 24,
-          right: 24,
+          left: 24,
           zIndex: 9999,
           display: "flex",
           alignItems: "center",
@@ -293,7 +293,7 @@ export function HinglishBotSimulator({
         position: "fixed",
         ...(position
           ? { left: position.x, top: position.y }
-          : { bottom: 24, right: 24 }),
+          : { bottom: 24, left: 24 }),
         zIndex: 9999,
         width: WIDGET_WIDTH,
         maxWidth: "calc(100vw - 24px)",

@@ -93,6 +93,7 @@ export function App(): React.JSX.Element {
   const [isBotMinimized, setIsBotMinimized] = useState(false);
   const [botCustomerId, setBotCustomerId] = useState("cust_demo_101");
   const [botWorkflowId, setBotWorkflowId] = useState<string | undefined>(undefined);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   // M16: isLoading = manual refresh (shows full spinner in header button)
   //      isPolling = silent background interval (tiny dot, no spinner)
   const [isLoading, setIsLoading] = useState(false);
@@ -101,59 +102,6 @@ export function App(): React.JSX.Element {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [activeNavTab, setActiveNavTab] = useState<string>(initialRoute.tab);
   const [activeKpiTile, setActiveKpiTile] = useState<"at_risk" | "recovered" | "in_flight" | null>(null);
-
-  // Synchronize route changes to URL hash and localStorage
-  const navigateTo = useCallback((tab: string, caseId?: string) => {
-    setActiveNavTab(tab);
-    localStorage.setItem("revrec_active_nav_tab", tab);
-    if (tab === "case-detail" && caseId) {
-      localStorage.setItem("revrec_case_id", caseId);
-      window.location.hash = `#/case/${caseId}`;
-    } else {
-      localStorage.removeItem("revrec_case_id");
-      if (tab !== "case-detail") {
-        setCaseDetailWorkflow(null);
-      }
-      window.location.hash = `#/${tab}`;
-    }
-
-    if (tab === "overview") {
-      setSelectedStage("");
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } else if (tab === "workflows") {
-      setTimeout(() => {
-        document.getElementById("workflow-ledger-section")?.scrollIntoView({ behavior: "smooth" });
-      }, 60);
-    } else if (tab === "simulation") {
-      setTimeout(() => {
-        document.getElementById("simulation-cockpit-section")?.scrollIntoView({ behavior: "smooth" });
-      }, 60);
-    }
-  }, []);
-
-  // Listen to browser hash changes (Back/Forward buttons or direct URL change)
-  useEffect(() => {
-    const handleHashSync = async () => {
-      const route = parseRouteFromUrl();
-      setActiveNavTab(route.tab);
-      if (route.tab === "case-detail" && route.caseId) {
-        try {
-          const fullDetails = await fetchWorkflowDetails(route.caseId);
-          setCaseDetailWorkflow(fullDetails);
-        } catch {
-          // If fetch fails, keep optimistic fallback
-        }
-      } else if (route.tab !== "case-detail") {
-        setCaseDetailWorkflow(null);
-      }
-    };
-
-    window.addEventListener("hashchange", handleHashSync);
-    // Initial mount sync (e.g. if loaded with #/case/id or #/communications)
-    handleHashSync();
-
-    return () => window.removeEventListener("hashchange", handleHashSync);
-  }, []);
 
   // M16: accepts a `silent` flag — background polls don't trigger the full loading spinner
   const loadData = useCallback(async (silent = false) => {
@@ -194,6 +142,70 @@ export function App(): React.JSX.Element {
       setIsPolling(false);
     }
   }, [selectedStage]);
+
+  // Synchronize route changes to URL hash and localStorage
+  const navigateTo = useCallback((tab: string, caseId?: string) => {
+    setActiveNavTab(tab);
+    localStorage.setItem("revrec_active_nav_tab", tab);
+    if (tab === "case-detail" && caseId) {
+      localStorage.setItem("revrec_case_id", caseId);
+      window.location.hash = `#/case/${caseId}`;
+    } else {
+      localStorage.removeItem("revrec_case_id");
+      if (tab !== "case-detail") {
+        setCaseDetailWorkflow(null);
+      }
+      window.location.hash = `#/${tab}`;
+    }
+
+    if (tab === "overview") {
+      setSelectedStage("");
+      loadData(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } else if (tab === "workflows") {
+      loadData(true);
+      setTimeout(() => {
+        document.getElementById("workflow-ledger-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 80);
+    } else if (tab === "simulation") {
+      setTimeout(() => {
+        document.getElementById("simulation-cockpit-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 80);
+    }
+  }, [loadData]);
+
+  // Listen to browser hash changes (Back/Forward buttons or direct URL change)
+  useEffect(() => {
+    const handleHashSync = async () => {
+      const route = parseRouteFromUrl();
+      setActiveNavTab(route.tab);
+      if (route.tab === "case-detail" && route.caseId) {
+        try {
+          const fullDetails = await fetchWorkflowDetails(route.caseId);
+          setCaseDetailWorkflow(fullDetails);
+        } catch {
+          // If fetch fails, keep optimistic fallback
+        }
+      } else if (route.tab !== "case-detail") {
+        setCaseDetailWorkflow(null);
+        if (route.tab === "workflows") {
+          setTimeout(() => {
+            document.getElementById("workflow-ledger-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 100);
+        } else if (route.tab === "simulation") {
+          setTimeout(() => {
+            document.getElementById("simulation-cockpit-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 100);
+        }
+      }
+    };
+
+    window.addEventListener("hashchange", handleHashSync);
+    // Initial mount sync (e.g. if loaded with #/case/id or #/communications)
+    handleHashSync();
+
+    return () => window.removeEventListener("hashchange", handleHashSync);
+  }, []);
 
   // Initial load + refresh on stage filter change
   useEffect(() => {
@@ -263,17 +275,19 @@ export function App(): React.JSX.Element {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-page)", display: "flex" }}>
-      {/* ── Left Sidebar Navigation (240px Fixed) ── */}
+    <div className="flex min-h-screen bg-[var(--bg-page)]">
+      {/* ── Left Sidebar Navigation (240px Fixed on Desktop, Drawer on Mobile) ── */}
       <Sidebar
         activeTab={activeNavTab}
         onSelectTab={(tab) => {
           navigateTo(tab);
         }}
+        isOpen={isMobileMenuOpen}
+        onClose={() => setIsMobileMenuOpen(false)}
       />
 
       {/* ── Main Application Workspace ── */}
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col transition-all duration-300">
         <Header
           activeTab={activeNavTab}
           caseDetailWorkflow={caseDetailWorkflow}
@@ -281,6 +295,7 @@ export function App(): React.JSX.Element {
             navigateTo(tab);
           }}
           onOpenBot={() => handleOpenBot()}
+          onMenuToggle={() => setIsMobileMenuOpen(true)}
         />
 
         {/* M15: Degraded connection banner — only shown when ALL API calls fail */}
@@ -362,7 +377,7 @@ export function App(): React.JSX.Element {
               onOpenBotForCustomer={handleOpenBot}
             />
           ) : (
-            <main style={{ flex: 1, maxWidth: 1320, width: "100%", margin: "0 auto", padding: "20px 28px 40px" }}>
+            <main className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 md:px-7 md:py-8">
             {/* ── Page Header: Compact & High Density ── */}
             <div style={{ marginBottom: 18 }}>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
@@ -381,7 +396,7 @@ export function App(): React.JSX.Element {
             </div>
 
             {/* ── Compact Bento KPI Metric Grid ── */}
-            <div id="kpi-cards-grid" className="grid grid-cols-2 lg:grid-cols-3" style={{ gap: 12, marginBottom: 16 }}>
+            <div id="kpi-cards-grid" className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
               <MetricCard
                 title="Revenue At Risk"
                 value={`₹${Math.round(summary.financials.totalAtRiskInPaise / 100).toLocaleString("en-IN")}`}
@@ -440,7 +455,7 @@ export function App(): React.JSX.Element {
             </div>
 
             {/* ── Integrated Simulation Control Ribbon ── */}
-            <div id="simulation-cockpit-section" style={{ marginBottom: 16 }}>
+            <div id="simulation-cockpit-section" style={{ marginBottom: 16, scrollMarginTop: 84 }}>
               <SimulationControls onSimulationCompleted={loadData} />
             </div>
 
@@ -457,7 +472,7 @@ export function App(): React.JSX.Element {
             </div>
 
             {/* ── Bounded Workflow Ledger Table ── */}
-            <div id="workflow-ledger-section">
+            <div id="workflow-ledger-section" style={{ scrollMarginTop: 84 }}>
               <WorkflowTable
                 workflows={workflows}
                 selectedStage={selectedStage}

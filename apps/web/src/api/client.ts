@@ -164,9 +164,32 @@ export async function triggerManualRetry(id: string): Promise<void> {
   if (!res.ok) throw new Error("Failed to trigger retry");
 }
 
-export async function triggerAgentDecision(id: string): Promise<void> {
+export interface AgentDecisionResponse {
+  status: string;
+  workflowId: string;
+  agentExecutionId: string;
+  decision: {
+    reasoning: string;
+    confidenceScore: number;
+    selectedTool: string;
+    toolInput: Record<string, unknown>;
+  };
+  policyPassed: boolean;
+  policyDetails?: string;
+  toolResult?: {
+    success: boolean;
+    toolExecuted: string;
+    details: Record<string, unknown>;
+  };
+}
+
+export async function triggerAgentDecision(id: string): Promise<AgentDecisionResponse> {
   const res = await fetch(`${API_BASE}/api/agent/decide/${id}`, { method: "POST" });
-  if (!res.ok) throw new Error("Failed to run agent decision");
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => ({}));
+    throw new Error(errJson.error || "Failed to run agent decision");
+  }
+  return res.json();
 }
 
 export async function sendChatMessage(

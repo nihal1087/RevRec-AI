@@ -177,7 +177,7 @@ export function DemoStore({ onRecoveryTriggered }: DemoStoreProps): React.JSX.El
   );
 
   return (
-    <div style={{ padding: "24px 28px 48px", maxWidth: 1320, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
+    <div className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col px-4 py-6 pb-12 md:px-7 md:py-6">
       {/* ── Page Header ── */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>

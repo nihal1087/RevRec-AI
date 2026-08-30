@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { WorkflowItem, triggerManualRetry, triggerAgentDecision } from "../api/client";
-import { X, Zap, Bot, PhoneCall, ArrowUpRight } from "lucide-react";
-import { PillBadge, RiskBadge, PillVariant } from "./PillBadge";
-
+import { WorkflowItem, triggerManualRetry, triggerAgentDecision, fetchWorkflowDetails } from "../api/client";
+import { X, Zap, Bot, PhoneCall, ArrowUpRight, CheckCircle2, CreditCard, RefreshCw } from "lucide-react";
 // WorkflowItem fields (from client.ts):
 //   auditEntries (not auditLogs), agentExecutions[].selectedTool, .estimatedCostInPaise
 // WorkflowItem does NOT have a recoveryMethod field — infer from stage
@@ -15,57 +13,67 @@ interface WorkflowDrawerProps {
   onOpenFullCase?: (workflow: WorkflowItem) => void;
 }
 
-function StagePill({ stage }: { stage: string }) {
-  const map: Record<string, PillVariant> = {
-    RECOVERED: "green",
-    RETRYING: "blue",
-    OUTREACH_SENT: "purple",
-    PROMISE_RECEIVED: "teal",
-    HALTED: "neutral",
-    ESCALATED: "red",
-  };
-  return (
-    <PillBadge variant={map[stage] ?? "neutral"}>
-      {stage.replace(/_/g, " ")}
-    </PillBadge>
-  );
-}
-
-function CategoryPill({ category }: { category: string | null }) {
-  const map: Record<string, PillVariant> = {
-    SOFT: "green",
-    HARD: "red",
-    NETWORK: "blue",
-    INTENT_DROP: "amber",
-    MANDATE_FAILURE: "purple",
-  };
-  return (
-    <PillBadge variant={category ? map[category] ?? "neutral" : "neutral"}>
-      {category ?? "UNKNOWN"}
-    </PillBadge>
-  );
-}
-
+import { RiskBadge, StageBadge as StagePill, CategoryBadge as CategoryPill } from "./PillBadge";
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <span className="ds-label" style={{ fontSize: 11 }}>{label}</span>
-      <div>{children}</div>
+    <div className="flex items-center justify-between py-3 border-b border-[var(--border)] last:border-b-0">
+      <span className="ds-label" style={{ fontSize: 11, margin: 0 }}>{label}</span>
+      <div className="text-right flex flex-col items-end justify-center">{children}</div>
     </div>
   );
 }
 
 export function WorkflowDrawer({
-  workflow,
+  workflow: rawWorkflow,
   onClose,
   onRefresh,
   onOpenBotForCustomer,
   onOpenFullCase,
 }: WorkflowDrawerProps): React.JSX.Element | null {
+  const [internalWorkflow, setInternalWorkflow] = useState<WorkflowItem | null>(null);
+  const [isClosing, setIsClosing] = useState(false);
+
   // ⚠️ Hooks must be called unconditionally — Rules of Hooks
   const [isRetrying, setIsRetrying] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [isSimulating, setIsSimulating] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  // Handle prop changes for entrance/exit animations
+  useEffect(() => {
+    if (rawWorkflow) {
+      setInternalWorkflow(rawWorkflow);
+      setActionMessage(null);
+      setIsClosing(false);
+
+      let isMounted = true;
+      fetchWorkflowDetails(rawWorkflow.id)
+        .then((full) => {
+          if (isMounted) setInternalWorkflow(full);
+        })
+        .catch(() => {});
+
+      return () => {
+        isMounted = false;
+      };
+    } else {
+      // rawWorkflow is null, meaning we should close.
+      // Only start the closing process if we actually have an internal workflow to hide.
+      if (internalWorkflow) {
+        setIsClosing(true);
+        const timer = setTimeout(() => {
+          setInternalWorkflow(null);
+          setActionMessage(null);
+          setIsClosing(false);
+        }, 200);
+        return () => clearTimeout(timer);
+      }
+    }
+    return undefined;
+  }, [rawWorkflow?.id]);
+
+  // Use the internal state for rendering
+  const workflow = internalWorkflow;
 
   // M28 fix: close drawer on Escape key for keyboard accessibility
   useEffect(() => {
@@ -84,6 +92,8 @@ export function WorkflowDrawer({
       setIsRetrying(true);
       setActionMessage(null);
       await triggerManualRetry(workflow.id);
+      const updated = await fetchWorkflowDetails(workflow.id);
+      setInternalWorkflow(updated);
       setActionMessage("Immediate retry job dispatched to BullMQ queue.");
       onRefresh();
     } catch (err) {
@@ -97,8 +107,20 @@ export function WorkflowDrawer({
     try {
       setIsEvaluating(true);
       setActionMessage(null);
-      await triggerAgentDecision(workflow.id);
-      setActionMessage("Bounded AI Agent evaluated the case and executed a compliant tool.");
+      const res = await triggerAgentDecision(workflow.id);
+      const updated = await fetchWorkflowDetails(workflow.id);
+      setInternalWorkflow(updated);
+
+      const toolName = res.decision?.selectedTool || "Tool";
+      const confidence = res.decision?.confidenceScore ? `${Math.round(res.decision.confidenceScore * 100)}%` : "";
+      
+      if (res.policyPassed) {
+        setActionMessage(`AI executed: ${toolName} (${confidence} confidence)`);
+      } else if (res.policyDetails?.includes("Action bypassed")) {
+        setActionMessage(res.policyDetails);
+      } else {
+        setActionMessage(`Policy guard active: ${res.policyDetails || 'Action bounded by compliance rules'}`);
+      }
       onRefresh();
     } catch (err) {
       setActionMessage(`Error: ${(err as Error).message}`);
@@ -107,16 +129,37 @@ export function WorkflowDrawer({
     }
   };
 
+  const handleSimulatePayment = async () => {
+    try {
+      setIsSimulating(true);
+      setActionMessage(null);
+      const res = await fetch("/api/checkout/simulate-recovery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workflowId: workflow.id }),
+      });
+      if (!res.ok) throw new Error("Failed to simulate recovery");
+      const updated = await fetchWorkflowDetails(workflow.id);
+      setInternalWorkflow(updated);
+      setActionMessage("Simulated customer payment via WhatsApp Link! Revenue recovered.");
+      onRefresh();
+    } catch (err) {
+      setActionMessage(`Error: ${(err as Error).message}`);
+    } finally {
+      setIsSimulating(false);
+    }
+  };
+
   const latestExecution = workflow.agentExecutions?.[0];
 
   return (
     <>
       {/* Overlay */}
-      <div className="ds-overlay" onClick={onClose} />
+      <div className={`ds-overlay ${isClosing ? "ds-closing" : ""}`} onClick={onClose} />
 
       {/* Sheet */}
       <div
-        className="ds-sheet"
+        className={`ds-sheet ${isClosing ? "ds-closing" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={`Workflow details — ${workflow.id}`}
@@ -244,7 +287,7 @@ export function WorkflowDrawer({
               </div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="flex flex-col">
               <InfoRow label="Gateway Error Code">
                 <span
                   style={{
@@ -281,29 +324,38 @@ export function WorkflowDrawer({
           {/* Section 2 — Customer Profile */}
           <div>
             <span className="ds-label" style={{ display: "block", marginBottom: 12 }}>Customer Profile</span>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text-strong)" }}>
+            <div className="flex flex-col">
+              <InfoRow label="Name">
+                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-strong)" }}>
                   {workflow.customer.name}
                 </span>
-                <span style={{ fontSize: 13, color: "var(--text-soft)" }}>{workflow.customer.email}</span>
-                {workflow.customer.phone && (
-                  <span style={{ fontSize: 13, color: "var(--text-soft)", fontFamily: "monospace" }}>
+              </InfoRow>
+              <InfoRow label="Email">
+                <span style={{ fontSize: 13, color: "var(--text-body)" }}>
+                  {workflow.customer.email}
+                </span>
+              </InfoRow>
+              {workflow.customer.phone && (
+                <InfoRow label="Phone">
+                  <span style={{ fontSize: 13, color: "var(--text-body)", fontFamily: "monospace" }}>
                     {workflow.customer.phone}
                   </span>
-                )}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+                </InfoRow>
+              )}
+              <InfoRow label="Risk Tier">
                 <RiskBadge
                   tier={
                     workflow.customer.riskTier ??
                     (workflow.customer.riskScore > 60 ? "HIGH" : workflow.customer.riskScore > 30 ? "MEDIUM" : "LOW")
                   }
                 />
-                <div style={{ fontSize: 12, color: "var(--text-soft)" }}>
-                  History Score: <strong>{workflow.customer.paymentHistoryScore ?? 85}</strong>/100
-                </div>
-              </div>
+              </InfoRow>
+              <InfoRow label="History Score">
+                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-strong)" }}>
+                  {workflow.customer.paymentHistoryScore ?? 85}
+                  <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>/100</span>
+                </span>
+              </InfoRow>
             </div>
           </div>
 
@@ -317,27 +369,61 @@ export function WorkflowDrawer({
                 className="ds-btn ds-btn-primary"
                 onClick={handleManualRetry}
                 disabled={isRetrying}
-                style={{ fontSize: 13, height: 36, padding: "0 14px" }}
+                style={{ fontSize: 13, height: 36, padding: "0 14px", borderRadius: 8, gap: 6 }}
               >
-                <Zap size={14} />
-                {isRetrying ? "Retrying…" : "Retry Now"}
+                {isRetrying ? <RefreshCw size={14} className="animate-spin" /> : <Zap size={14} />}
+                <span>{isRetrying ? "Retrying…" : "Retry Now"}</span>
               </button>
               <button
                 className="ds-btn ds-btn-secondary"
                 onClick={handleRunAgent}
                 disabled={isEvaluating}
-                style={{ fontSize: 13, height: 36, padding: "0 14px" }}
+                style={{ fontSize: 13, height: 36, padding: "0 14px", borderRadius: 8, gap: 6 }}
               >
-                <Bot size={14} />
-                {isEvaluating ? "Evaluating…" : "Run AI Agent"}
+                {isEvaluating ? <RefreshCw size={14} className="animate-spin" /> : <Bot size={14} />}
+                <span>{isEvaluating ? "Evaluating…" : "Run AI Agent"}</span>
               </button>
               <button
                 className="ds-btn ds-btn-ghost"
                 onClick={() => onOpenBotForCustomer(workflow.customer.id, workflow.id)}
-                style={{ fontSize: 13, height: 36, padding: "0 14px" }}
+                style={{ fontSize: 13, height: 36, padding: "0 14px", borderRadius: 8, gap: 6 }}
               >
                 <PhoneCall size={14} />
-                Open Bot
+                <span>Open Bot</span>
+              </button>
+              <button
+                className="ds-btn ds-btn-secondary"
+                onClick={handleSimulatePayment}
+                disabled={isSimulating || workflow.stage === "RECOVERED"}
+                title={workflow.stage === "RECOVERED" ? "Payment has already been simulated and recovered" : "Simulate customer completing payment via link"}
+                style={{
+                  fontSize: 13,
+                  height: 36,
+                  padding: "0 14px",
+                  borderRadius: 8,
+                  gap: 6,
+                  color: workflow.stage === "RECOVERED" ? "var(--text-faint)" : "var(--text-strong)",
+                  backgroundColor: workflow.stage === "RECOVERED" ? "var(--bg-subtle)" : "var(--bg-surface)",
+                  border: "1px solid var(--border)",
+                  cursor: workflow.stage === "RECOVERED" || isSimulating ? "not-allowed" : "pointer",
+                  opacity: (workflow.stage === "RECOVERED" || isSimulating) ? 0.5 : 1,
+                  boxShadow: workflow.stage === "RECOVERED" ? "none" : "var(--shadow-xs)",
+                }}
+              >
+                {isSimulating ? (
+                  <RefreshCw size={14} className="animate-spin" />
+                ) : workflow.stage === "RECOVERED" ? (
+                  <CheckCircle2 size={14} style={{ color: "var(--green)" }} />
+                ) : (
+                  <CreditCard size={14} />
+                )}
+                <span>
+                  {workflow.stage === "RECOVERED"
+                    ? "Payment Recovered"
+                    : isSimulating
+                    ? "Processing..."
+                    : "Simulate Payment"}
+                </span>
               </button>
             </div>
 
@@ -477,17 +563,7 @@ export function WorkflowDrawer({
             </>
           )}
 
-          {/* Open in detail (external link) */}
-          <div style={{ paddingTop: 4 }}>
-            <button
-              className="ds-btn ds-btn-ghost"
-              onClick={() => onOpenBotForCustomer(workflow.customer.id, workflow.id)}
-              style={{ fontSize: 12, height: 32, padding: "0 12px" }}
-            >
-              Open Hinglish Bot for this customer
-              <ArrowUpRight size={12} />
-            </button>
-          </div>
+
         </div>
       </div>
     </>

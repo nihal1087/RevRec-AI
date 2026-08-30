@@ -78,14 +78,14 @@ Your objective: Recover at-risk payments while minimizing customer churn, preser
 
 BOUNDED AGENCY RULES:
 1. You can ONLY select from the 6 predefined tools:
-   - RETRY_PAYMENT
-   - SEND_WHATSAPP_RECOVERY_LINK
-   - APPLY_PARTIAL_SETTLEMENT
-   - SCHEDULE_PROMISE_TO_PAY
-   - ESCALATE_TO_HUMAN
-   - HALT_DUNNING
+   - retry_payment
+   - send_whatsapp_recovery_link
+   - apply_partial_settlement_discount
+   - schedule_promise_to_pay
+   - escalate_to_human_agent
+   - halt_dunning
 2. NEVER schedule automated retries for HARD declines (e.g., stolen or expired cards).
-3. For INTENT_DROP / OTP timeouts, prefer sending a low-friction 1-click payment link via WHATSAPP.
+3. For INTENT_DROP / OTP timeouts, prefer sending a low-friction 1-click payment link via WHATSAPP using the "send_whatsapp_recovery_link" tool.
 4. For high-value customers (LTV > ₹50,000 or enterprise), prioritize white-glove communication or human escalation.
 5. Max concession/discount allowed is 10% of total amount at risk (or ₹500 max).
 6. Always return a valid JSON object matching the requested schema.
@@ -108,6 +108,27 @@ export async function runAgentDecision(workflowId: string): Promise<AgentRunResu
 
   if (!workflow) {
     throw new Error(`RecoveryWorkflow ${workflowId} not found`);
+  }
+
+  // Short-circuit if the case is already fully resolved to prevent hallucinated fallback actions
+  if (workflow.stage === "RECOVERED" || workflow.stage === "HALTED" || workflow.stage === "ABANDONED" || workflow.stage === "ESCALATED") {
+    return {
+      workflowId: workflow.id,
+      agentExecutionId: `exec_skipped_${workflow.stage.toLowerCase()}`,
+      decision: {
+        workflowId: workflow.id,
+        reasoning: `Action bypassed: Workflow is currently in terminal stage '${workflow.stage}'.`,
+        confidenceScore: 1.0,
+        selectedTool: AgentToolName.HALT_DUNNING,
+        toolInput: {
+          tool: AgentToolName.HALT_DUNNING,
+          reason: `Workflow is ${workflow.stage}`,
+          writeOff: false
+        },
+      },
+      policyPassed: false,
+      policyDetails: `Action bypassed: Workflow is in ${workflow.stage} stage.`,
+    };
   }
 
   const category = (workflow.payment.declineCategory as unknown as DeclineCategory) ?? DeclineCategory.SOFT;
@@ -138,7 +159,18 @@ ${workflow.dunningContacts.map((c) => `- Channel: ${c.channel}, Sent: ${c.sentAt
 ACTIVE COMMITMENTS:
 ${workflow.promiseToPays.length > 0 ? `Active Promise to Pay: ${workflow.promiseToPays[0]?.status} until ${workflow.promiseToPays[0]?.promisedByDate.toISOString()}` : "No active promise"}
 
-Determine the single best, compliant action to recover this revenue. Return structured JSON with reasoning, confidenceScore, selectedTool, and toolInput.
+Determine the single best, compliant action to recover this revenue. Return structured JSON with exactly the following schema:
+{
+  "reasoning": "string",
+  "confidenceScore": 0.0 to 1.0,
+  "selectedTool": "send_whatsapp_recovery_link" (or other tool name),
+  "toolInput": {
+    "tool": "send_whatsapp_recovery_link",
+    "messageTemplateKey": "intent_drop_recovery_v1",
+    "includeDiscount": false
+  }
+}
+Note: toolInput schema varies by tool. For send_whatsapp_recovery_link, include 'messageTemplateKey' and 'includeDiscount' as shown above.
 `;
 
   // 3. Invoke Google Gemini LLM
@@ -157,7 +189,7 @@ Determine the single best, compliant action to recover this revenue. Return stru
       toolInput: parseResult.data.toolInput as AgentToolInput,
     };
   } else {
-    logger.warn(`[Agent] LLM output failed schema validation (${parseResult.error.message}) — using safe fallback`);
+    logger.warn(`[Agent] LLM output failed schema validation (${parseResult.error.message}) — using safe fallback. Raw output: ${JSON.stringify(llmResult.structuredJson)}`);
     decision = {
       workflowId: workflow.id,
       reasoning: "Safe fallback applied due to schema validation constraint.",
