@@ -342,5 +342,4 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ## Documentation Links
 - [Technical Architecture Specification](docs/ARCHITECTURE.md)
-- [Interview Defense & System Design Guide](docs/INTERVIEW_GUIDE.md)
 
