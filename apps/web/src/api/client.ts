@@ -121,7 +121,7 @@ export interface WorkflowItem {
   }>;
 }
 
-const API_BASE = (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || "";
+const API_BASE = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/+$/, "") : "";
 
 export async function fetchAnalyticsSummary(): Promise<AnalyticsSummary> {
   const res = await fetch(`${API_BASE}/api/analytics/summary`);
