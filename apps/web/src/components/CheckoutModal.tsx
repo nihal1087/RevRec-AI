@@ -2,6 +2,11 @@ import React, { useState, useEffect, useCallback } from "react";
 import { X, CreditCard, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { RecoveryActivatedBanner } from "./RecoveryActivatedBanner";
 
+// ── API Base URL ──────────────────────────────────────────────────────────────
+const API_BASE = import.meta.env.VITE_API_URL
+  ? import.meta.env.VITE_API_URL.replace(/\/+$/, "")
+  : "";
+
 // ── Razorpay window type ──────────────────────────────────────────────────────
 declare global {
   interface Window {
@@ -84,7 +89,7 @@ export function CheckoutModal({
 
     try {
       // Step 1: Create Razorpay order via our backend
-      const orderRes = await fetch("/api/checkout/order", {
+      const orderRes = await fetch(`${API_BASE}/api/checkout/order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -153,7 +158,7 @@ export function CheckoutModal({
       setPhase("recovering");
 
       try {
-        const res = await fetch("/api/checkout/simulate-failure", {
+        const res = await fetch(`${API_BASE}/api/checkout/simulate-failure`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

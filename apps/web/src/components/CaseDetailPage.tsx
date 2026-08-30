@@ -4,6 +4,11 @@ import {
   triggerManualRetry,
   triggerAgentDecision,
 } from "../api/client";
+
+const API_BASE = import.meta.env.VITE_API_URL
+  ? import.meta.env.VITE_API_URL.replace(/\/+$/, "")
+  : "";
+
 import {
   ArrowLeft,
   Zap,
@@ -124,7 +129,7 @@ export function CaseDetailPage({
     try {
       setIsSimulatingPayment(true);
       setActionMessage(null);
-      const res = await fetch("/api/checkout/simulate-recovery", {
+      const res = await fetch(`${API_BASE}/api/checkout/simulate-recovery`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workflowId: workflow.id }),

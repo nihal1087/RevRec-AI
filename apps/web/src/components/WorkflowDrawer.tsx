@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { WorkflowItem, triggerManualRetry, triggerAgentDecision, fetchWorkflowDetails } from "../api/client";
 import { X, Zap, Bot, PhoneCall, ArrowUpRight, CheckCircle2, CreditCard, RefreshCw } from "lucide-react";
+
+const API_BASE = import.meta.env.VITE_API_URL
+  ? import.meta.env.VITE_API_URL.replace(/\/+$/, "")
+  : "";
+
 // WorkflowItem fields (from client.ts):
 //   auditEntries (not auditLogs), agentExecutions[].selectedTool, .estimatedCostInPaise
 // WorkflowItem does NOT have a recoveryMethod field — infer from stage
@@ -133,7 +138,7 @@ export function WorkflowDrawer({
     try {
       setIsSimulating(true);
       setActionMessage(null);
-      const res = await fetch("/api/checkout/simulate-recovery", {
+      const res = await fetch(`${API_BASE}/api/checkout/simulate-recovery`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workflowId: workflow.id }),
