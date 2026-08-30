@@ -29,31 +29,36 @@ import { logger } from "./config/logger";
 import { prisma } from "@revrec/db";
 
 // ── Environment Validation ────────────────────────────────────────────────────
-// Crash loudly at startup if critical config is missing.
-// This surfaces misconfigurations in CI/staging, not in production under load.
-const requiredEnvVars = [
-  "DATABASE_URL",
-  "REDIS_HOST",
-  "WEBHOOK_SECRET",
-] as const;
-
-for (const envVar of requiredEnvVars) {
-  if (!process.env[envVar]) {
-    logger.error(`[FATAL] Missing required environment variable: ${envVar}`);
-    logger.error("[FATAL] Copy .env.example to apps/api/.env and fill in all values.");
-    process.exit(1);
-  }
+if (!process.env["DATABASE_URL"]) {
+  logger.error("[FATAL] Missing required environment variable: DATABASE_URL");
+  process.exit(1);
+}
+if (!process.env["REDIS_URL"] && !process.env["REDIS_HOST"]) {
+  logger.error("[FATAL] Missing required environment variable: REDIS_URL or REDIS_HOST");
+  process.exit(1);
+}
+if (!process.env["WEBHOOK_SECRET"]) {
+  logger.error("[FATAL] Missing required environment variable: WEBHOOK_SECRET");
+  process.exit(1);
 }
 
 const app = express();
+
+// ── Global CORS Middleware ───────────────────────────────────────────────────
+app.use((req: Request, res: Response, next: NextFunction) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Razorpay-Signature");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 // ── STEP 1: Mount Webhook Route with express.raw() FIRST ─────────────────────
 // express.raw() reads the body as a raw Buffer and stops.
 // It does NOT parse JSON. The validateWebhookSignature middleware does
 // the HMAC check on the Buffer, THEN manually calls JSON.parse().
-//
-// type: 'application/json' ensures we only buffer bodies with this content type.
-// Without it, express.raw() would buffer ALL request bodies (even file uploads).
 app.use(
   "/api/webhooks",
   express.raw({ type: "application/json", limit: "100kb" }),
@@ -63,6 +68,7 @@ app.use(
 // ── STEP 2: Global JSON Middleware for all other routes ───────────────────────
 // This runs AFTER the webhook route, so webhooks are unaffected.
 app.use(express.json({ limit: "10kb" }));
+
 
 // BigInt JSON Serializer — Prisma returns BigInt for monetary paise fields.
 // JSON.stringify(42n) throws TypeError by default. This replacer converts

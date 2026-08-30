@@ -121,7 +121,7 @@ export interface WorkflowItem {
   }>;
 }
 
-const API_BASE = ""; // Uses Vite proxy configured in vite.config.ts
+const API_BASE = (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || "";
 
 export async function fetchAnalyticsSummary(): Promise<AnalyticsSummary> {
   const res = await fetch(`${API_BASE}/api/analytics/summary`);
