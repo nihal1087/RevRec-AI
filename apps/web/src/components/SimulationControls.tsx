@@ -201,7 +201,7 @@ export function SimulationControls({
             style={{
               position: "fixed",
               inset: 0,
-              zIndex: 50,
+              zIndex: 101,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
