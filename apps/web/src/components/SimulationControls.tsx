@@ -196,21 +196,30 @@ export function SimulationControls({
 
       {/* ── Benchmark Report Modal ── */}
       {isBenchmarkOpen && benchmark && typeof document !== "undefined" && createPortal(
-        <div
-          onClick={() => setIsBenchmarkOpen(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 99999,
-            backgroundColor: "rgba(15, 23, 42, 0.5)",
-            backdropFilter: "blur(4px)",
-            WebkitBackdropFilter: "blur(4px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 24,
-          }}
-        >
+        <div style={{ position: "fixed", inset: 0, zIndex: 99999 }}>
+          {/* Blur backdrop — separate layer so blur doesn't affect modal children */}
+          <div
+            onClick={() => setIsBenchmarkOpen(false)}
+            style={{
+              position: "absolute",
+              inset: 0,
+              backgroundColor: "rgba(15, 23, 42, 0.5)",
+              backdropFilter: "blur(4px)",
+              WebkitBackdropFilter: "blur(4px)",
+            }}
+          />
+          {/* Modal centering container — sits above backdrop, no filter applied */}
+          <div
+            onClick={() => setIsBenchmarkOpen(false)}
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 24,
+            }}
+          >
           <div
             className="ds-modal"
             onClick={(e) => e.stopPropagation()}
@@ -360,6 +369,7 @@ export function SimulationControls({
                 Close Report
               </button>
             </div>
+          </div>
           </div>
         </div>,
         document.body
