@@ -1,4 +1,4 @@
-﻿-- Migration: bigint_monetary_fields_auditlog_fk
+-- Migration: bigint_monetary_fields_auditlog_fk
 -- Converts all monetary paise fields from Int to BigInt across all tables.
 -- Adds formal FK relation on AuditLog.customerId.
 -- Removes redundant indexes on @unique columns.
