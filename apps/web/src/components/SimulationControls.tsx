@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { createPortal } from "react-dom";
 import {
   triggerBatchSimulation,
   fetchBenchmarkReport,
@@ -194,169 +195,174 @@ export function SimulationControls({
       </div>
 
       {/* ── Benchmark Report Modal ── */}
-      {isBenchmarkOpen && benchmark && (
-        <>
-          <div className="ds-overlay" onClick={() => setIsBenchmarkOpen(false)} />
+      {isBenchmarkOpen && benchmark && typeof document !== "undefined" && createPortal(
+        <div
+          onClick={() => setIsBenchmarkOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 99999,
+            backgroundColor: "rgba(15, 23, 42, 0.5)",
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+          }}
+        >
           <div
+            className="ds-modal"
+            onClick={(e) => e.stopPropagation()}
             style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 101,
+              width: "100%",
+              maxWidth: 680,
+              maxHeight: "85vh",
+              overflowY: "auto",
               display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 24,
-              pointerEvents: "none",
+              flexDirection: "column",
+              backgroundColor: "var(--bg-surface, #ffffff)",
+              border: "1px solid var(--border)",
+              borderRadius: 16,
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
             }}
           >
+            {/* Modal header */}
             <div
-              className="ds-modal"
               style={{
-                width: "100%",
-                maxWidth: 680,
-                maxHeight: "85vh",
-                overflowY: "auto",
                 display: "flex",
-                flexDirection: "column",
-                pointerEvents: "auto",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                padding: "20px 24px 16px",
+                borderBottom: "1px solid var(--border)",
+                gap: 16,
               }}
             >
-              {/* Modal header */}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  justifyContent: "space-between",
-                  padding: "20px 24px 16px",
-                  borderBottom: "1px solid var(--border)",
-                  gap: 16,
-                }}
-              >
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                    <TrendingUp size={15} style={{ color: "var(--brand)" }} />
-                    <span className="ds-label">Razorpay Evaluation Benchmark</span>
-                  </div>
-                  <h2 style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.015em", color: "var(--text-strong)", margin: 0 }}>
-                    Revenue Recovery Comparison
-                  </h2>
-                  <p style={{ fontSize: 12.5, color: "var(--text-soft)", marginTop: 2 }}>
-                    Naive Immediate Retry vs RevRec Autonomous Engine
-                  </p>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                  <TrendingUp size={15} style={{ color: "var(--brand)" }} />
+                  <span className="ds-label">Razorpay Evaluation Benchmark</span>
                 </div>
-                <button className="ds-btn-ghost ds-btn-icon" onClick={() => setIsBenchmarkOpen(false)}>
-                  <X size={15} />
-                </button>
+                <h2 style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.015em", color: "var(--text-strong)", margin: 0 }}>
+                  Revenue Recovery Comparison
+                </h2>
+                <p style={{ fontSize: 12.5, color: "var(--text-soft)", marginTop: 2 }}>
+                  Naive Immediate Retry vs RevRec Autonomous Engine
+                </p>
               </div>
+              <button className="ds-btn-ghost ds-btn-icon" onClick={() => setIsBenchmarkOpen(false)}>
+                <X size={15} />
+              </button>
+            </div>
 
-              {/* 3 impact highlight cards */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, padding: "16px 24px 0" }}>
-                <div style={{ background: "var(--bg-subtle)", borderRadius: 8, padding: 14 }}>
-                  <span className="ds-label" style={{ fontSize: 10.5 }}>Recovery Rate Lift</span>
-                  <p style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--green-text)", margin: "4px 0 2px" }}>
-                    +{benchmark.comparison.businessImpact.recoveryRateLiftPercent}%
-                  </p>
-                  <p style={{ fontSize: 11.5, color: "var(--text-faint)", margin: 0 }}>
-                    {benchmark.comparison.naiveBaseline.recoveryRatePercent}% naive → {benchmark.comparison.revRecEngine.recoveryRatePercent}% RevRec
-                  </p>
-                </div>
-                <div style={{ background: "var(--bg-subtle)", borderRadius: 8, padding: 14 }}>
-                  <span className="ds-label" style={{ fontSize: 10.5 }}>Net Revenue Lift</span>
-                  <p style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--blue-text)", margin: "4px 0 2px" }}>
-                    ₹{Math.round(benchmark.comparison.businessImpact.netAdditionalRevenueInPaise / 100).toLocaleString("en-IN")}
-                  </p>
-                  <p style={{ fontSize: 11.5, color: "var(--text-faint)", margin: 0 }}>Pure incremental recovery</p>
-                </div>
-                <div style={{ background: "var(--bg-subtle)", borderRadius: 8, padding: 14 }}>
-                  <span className="ds-label" style={{ fontSize: 10.5 }}>AI Cost ROI</span>
-                  <p style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--purple-text)", margin: "4px 0 2px" }}>
-                    {benchmark.comparison.businessImpact.roiMultiple}
-                  </p>
-                  <p style={{ fontSize: 11.5, color: "var(--text-faint)", margin: 0 }}>Revenue per rupee of LLM</p>
-                </div>
+            {/* 3 impact highlight cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, padding: "16px 24px 0" }}>
+              <div style={{ background: "var(--bg-subtle)", borderRadius: 8, padding: 14 }}>
+                <span className="ds-label" style={{ fontSize: 10.5 }}>Recovery Rate Lift</span>
+                <p style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--green-text)", margin: "4px 0 2px" }}>
+                  +{benchmark.comparison.businessImpact.recoveryRateLiftPercent}%
+                </p>
+                <p style={{ fontSize: 11.5, color: "var(--text-faint)", margin: 0 }}>
+                  {benchmark.comparison.naiveBaseline.recoveryRatePercent}% naive → {benchmark.comparison.revRecEngine.recoveryRatePercent}% RevRec
+                </p>
               </div>
-
-              {/* Comparison table */}
-              <div style={{ padding: "16px 24px", overflowX: "auto" }}>
-                <table className="ds-table">
-                  <thead>
-                    <tr>
-                      <th>Evaluation Dimension</th>
-                      <th>Naive Retry</th>
-                      <th>RevRec Engine</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      {
-                        metric: "Recovery Success Rate",
-                        naive: `${benchmark.comparison.naiveBaseline.recoveryRatePercent}%`,
-                        revrec: `${benchmark.comparison.revRecEngine.recoveryRatePercent}%`,
-                        revrecGood: true,
-                      },
-                      {
-                        metric: "Revenue Recovered",
-                        naive: `₹${Math.round(benchmark.comparison.naiveBaseline.revenueRecoveredInPaise / 100).toLocaleString("en-IN")}`,
-                        revrec: `₹${Math.round(benchmark.comparison.revRecEngine.revenueRecoveredInPaise / 100).toLocaleString("en-IN")}`,
-                        revrecGood: true,
-                      },
-                      {
-                        metric: "Bank Downtime Collisions (00:00–03:30 IST)",
-                        naive: `${benchmark.comparison.naiveBaseline.downtimeCollisions} collisions`,
-                        revrec: "0 — 100% evaded",
-                        naiveBad: true,
-                        revrecGood: true,
-                      },
-                      {
-                        metric: "RBI / TRAI Compliance Violations",
-                        naive: `${benchmark.comparison.naiveBaseline.complianceViolationsReported} violations`,
-                        revrec: "0 — Policy bound",
-                        naiveBad: true,
-                        revrecGood: true,
-                      },
-                      {
-                        metric: "Salary Cycle Alignment",
-                        naive: "None (repeats blindly)",
-                        revrec: "Auto-shifted to 1st of month",
-                        revrecGood: true,
-                      },
-                      {
-                        metric: "Hinglish PTP Extraction",
-                        naive: "None (static English emails)",
-                        revrec: "Multi-turn WhatsApp bot",
-                        revrecGood: true,
-                      },
-                    ].map((row, i) => (
-                      <tr key={i}>
-                        <td style={{ fontWeight: 500, color: "var(--text-strong)", fontSize: 13 }}>{row.metric}</td>
-                        <td style={{ color: row.naiveBad ? "var(--red-text)" : "var(--text-soft)", fontWeight: row.naiveBad ? 500 : 400, fontSize: 13 }}>
-                          {row.naive}
-                        </td>
-                        <td style={{ color: row.revrecGood ? "var(--green-text)" : "var(--text-strong)", fontWeight: 600, fontSize: 13 }}>
-                          {row.revrec}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div style={{ background: "var(--bg-subtle)", borderRadius: 8, padding: 14 }}>
+                <span className="ds-label" style={{ fontSize: 10.5 }}>Net Revenue Lift</span>
+                <p style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--blue-text)", margin: "4px 0 2px" }}>
+                  ₹{Math.round(benchmark.comparison.businessImpact.netAdditionalRevenueInPaise / 100).toLocaleString("en-IN")}
+                </p>
+                <p style={{ fontSize: 11.5, color: "var(--text-faint)", margin: 0 }}>Pure incremental recovery</p>
               </div>
-
-              {/* Modal footer */}
-              <div
-                style={{
-                  padding: "14px 24px",
-                  borderTop: "1px solid var(--border)",
-                  display: "flex",
-                  justifyContent: "flex-end",
-                }}
-              >
-                <button className="ds-btn ds-btn-ghost" onClick={() => setIsBenchmarkOpen(false)} style={{ height: 32, fontSize: 12.5 }}>
-                  Close Report
-                </button>
+              <div style={{ background: "var(--bg-subtle)", borderRadius: 8, padding: 14 }}>
+                <span className="ds-label" style={{ fontSize: 10.5 }}>AI Cost ROI</span>
+                <p style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--purple-text)", margin: "4px 0 2px" }}>
+                  {benchmark.comparison.businessImpact.roiMultiple}
+                </p>
+                <p style={{ fontSize: 11.5, color: "var(--text-faint)", margin: 0 }}>Revenue per rupee of LLM</p>
               </div>
             </div>
+
+            {/* Comparison table */}
+            <div style={{ padding: "16px 24px", overflowX: "auto" }}>
+              <table className="ds-table">
+                <thead>
+                  <tr>
+                    <th>Evaluation Dimension</th>
+                    <th>Naive Retry</th>
+                    <th>RevRec Engine</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    {
+                      metric: "Recovery Success Rate",
+                      naive: `${benchmark.comparison.naiveBaseline.recoveryRatePercent}%`,
+                      revrec: `${benchmark.comparison.revRecEngine.recoveryRatePercent}%`,
+                      revrecGood: true,
+                    },
+                    {
+                      metric: "Revenue Recovered",
+                      naive: `₹${Math.round(benchmark.comparison.naiveBaseline.revenueRecoveredInPaise / 100).toLocaleString("en-IN")}`,
+                      revrec: `₹${Math.round(benchmark.comparison.revRecEngine.revenueRecoveredInPaise / 100).toLocaleString("en-IN")}`,
+                      revrecGood: true,
+                    },
+                    {
+                      metric: "Bank Downtime Collisions (00:00–03:30 IST)",
+                      naive: `${benchmark.comparison.naiveBaseline.downtimeCollisions} collisions`,
+                      revrec: "0 — 100% evaded",
+                      naiveBad: true,
+                      revrecGood: true,
+                    },
+                    {
+                      metric: "RBI / TRAI Compliance Violations",
+                      naive: `${benchmark.comparison.naiveBaseline.complianceViolationsReported} violations`,
+                      revrec: "0 — Policy bound",
+                      naiveBad: true,
+                      revrecGood: true,
+                    },
+                    {
+                      metric: "Salary Cycle Alignment",
+                      naive: "None (repeats blindly)",
+                      revrec: "Auto-shifted to 1st of month",
+                      revrecGood: true,
+                    },
+                    {
+                      metric: "Hinglish PTP Extraction",
+                      naive: "None (static English emails)",
+                      revrec: "Multi-turn WhatsApp bot",
+                      revrecGood: true,
+                    },
+                  ].map((row, i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 500, color: "var(--text-strong)", fontSize: 13 }}>{row.metric}</td>
+                      <td style={{ color: row.naiveBad ? "var(--red-text)" : "var(--text-soft)", fontWeight: row.naiveBad ? 500 : 400, fontSize: 13 }}>
+                        {row.naive}
+                      </td>
+                      <td style={{ color: row.revrecGood ? "var(--green-text)" : "var(--text-strong)", fontWeight: 600, fontSize: 13 }}>
+                        {row.revrec}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal footer */}
+            <div
+              style={{
+                padding: "14px 24px",
+                borderTop: "1px solid var(--border)",
+                display: "flex",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button className="ds-btn ds-btn-ghost" onClick={() => setIsBenchmarkOpen(false)} style={{ height: 32, fontSize: 12.5 }}>
+                Close Report
+              </button>
+            </div>
           </div>
-        </>
+        </div>,
+        document.body
       )}
     </>
   );
