@@ -56,7 +56,7 @@ RevRec is a high-throughput, event-driven revenue recovery engine engineered for
 │   [Agent Orchestrator: agent.service.ts]                               │
 │                  │                                                     │
 │                  ▼                                                     │
-│   [Groq Llama 3.3 70B / Gemini 1.5 Flash (Structured JSON)]            │
+│   [Groq LPU (openai/gpt-oss-120b) (Structured JSON)]                   │
 │                  │                                                     │
 │                  ▼                                                     │
 │   [Runtime Zod Validation: AgentDecisionSchema]                        │
@@ -208,7 +208,7 @@ where $\text{Jitter}_{\text{ratio}} \in [0.80, 1.20]$.
                             ▼
 ┌────────────────────────────────────────────────────────┐
 │ LLM Structured JSON Inference                          │
-│ • Groq Llama 3.3 70B / Gemini 1.5 Flash                │
+│ • Groq LPU (openai/gpt-oss-120b)                       │
 │ • Validated against Zod AgentDecisionSchema            │
 └───────────────────────────┬────────────────────────────┘
                             │

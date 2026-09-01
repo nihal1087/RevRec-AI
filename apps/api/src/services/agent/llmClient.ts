@@ -1,5 +1,5 @@
 /**
- * services/agent/llmClient.ts — Groq LLM Client (Llama 3.3 70B Versatile)
+ * services/agent/llmClient.ts — Groq LLM Client (openai/gpt-oss-120b)
  *
  * Ultra-fast inference on Groq LPUs with strict JSON structured output enforcement.
  * Powers the Bounded Recovery Agent and Conversational Hinglish WhatsApp Bot.
@@ -45,7 +45,7 @@ function getGroqClient(): Groq | null {
 
 /**
  * Calls Groq with strict JSON output mode and system instructions.
- * Uses Llama 3.3 70B Versatile by default for state-of-the-art Hinglish & tool calling.
+ * Uses openai/gpt-oss-120b by default for state-of-the-art Hinglish & tool calling.
  */
 export async function callGroqStructured(
   prompt: string,

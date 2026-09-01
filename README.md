@@ -2,6 +2,8 @@
 
 RevRec is a revenue recovery engine designed for Indian digital payments (UPI, recurring card debits, e-NACH, and netbanking). It intercepts failed payment events, identifies the failure cause, and automatically recovers revenue using bank-aware retry scheduling, bounded AI decision-making, and conversational WhatsApp outreach in Hinglish.
 
+> 🌐 **Live Demo Application:** [https://rev-rec-ai-esosdasiz-nyl1.vercel.app/#/workflows](https://rev-rec-ai-esosdasiz-nyl1.vercel.app/#/workflows)
+
 ---
 
 ## Overview
@@ -138,7 +140,7 @@ In comparative tests against the standard industry approach (immediate naive ret
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │ Layer 3: Bounded AI & Compliance Firewall                              │
-│ • Groq Llama 3.3 70B / Gemini structured JSON inference                │
+│ • Groq LPU inference (openai/gpt-oss-120b) structured JSON decisions   │
 │ • Deterministic rule engine enforcing TRAI, RBI, and discount caps     │
 │ • Automated execution of approved tools in PostgreSQL transactions     │
 └───────────────────────────────────┬────────────────────────────────────┘
@@ -276,9 +278,9 @@ REDIS_PORT=6379
 REDIS_URL="redis://localhost:6379"
 WEBHOOK_SECRET="whsec_razorpay_super_secret_key_2026"
 
-# Optional: Add Groq API Key for live Llama 3.3 inference (falls back to deterministic heuristics if omitted)
+# Optional: Add Groq API Key for live LLM inference (falls back to deterministic heuristics if omitted)
 GROQ_API_KEY=""
-GROQ_MODEL="llama-3.3-70b-versatile"
+GROQ_MODEL="openai/gpt-oss-120b"
 ```
 
 ### 3. Start Database & Cache
@@ -340,6 +342,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ---
 
-## Documentation Links
-- [Technical Architecture Specification](docs/ARCHITECTURE.md)
+## Links & Documentation
+- **Live Demo Application**: [https://rev-rec-ai-esosdasiz-nyl1.vercel.app/#/workflows](https://rev-rec-ai-esosdasiz-nyl1.vercel.app/#/workflows)
+- **Technical Architecture Specification**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 

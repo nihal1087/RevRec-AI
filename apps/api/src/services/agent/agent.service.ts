@@ -3,7 +3,7 @@
  *
  * Orchestrates autonomous decision making:
  * 1. Aggregates multi-dimensional financial context (Customer LTV, RCA category, history)
- * 2. Prompts Google Gemini with strict JSON schema constraints
+ * 2. Prompts LLM (openai/gpt-oss-120b) with strict JSON schema constraints
  * 3. Enforces compliance boundary checks via DunningRuleEngine before execution
  * 4. Dispatches approved tools transactionally
  * 5. Records immutable audit trails and decision traces for merchant visibility
@@ -173,7 +173,7 @@ Determine the single best, compliant action to recover this revenue. Return stru
 Note: toolInput schema varies by tool. For send_whatsapp_recovery_link, include 'messageTemplateKey' and 'includeDiscount' as shown above.
 `;
 
-  // 3. Invoke Google Gemini LLM
+  // 3. Invoke LLM (openai/gpt-oss-120b)
   const llmResult = await callGeminiStructured(userPrompt, SYSTEM_PROMPT);
 
   // 4. Validate output with Zod
