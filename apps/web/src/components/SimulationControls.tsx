@@ -225,8 +225,8 @@ export function SimulationControls({
             onClick={(e) => e.stopPropagation()}
             style={{
               width: "100%",
-              maxWidth: 680,
-              maxHeight: "85vh",
+              maxWidth: 700,
+              maxHeight: "92vh",
               overflowY: "auto",
               display: "flex",
               flexDirection: "column",
@@ -240,65 +240,91 @@ export function SimulationControls({
             <div
               style={{
                 display: "flex",
-                alignItems: "flex-start",
+                alignItems: "center",
                 justifyContent: "space-between",
-                padding: "20px 24px 16px",
+                padding: "16px 22px 14px",
                 borderBottom: "1px solid var(--border)",
                 gap: 16,
               }}
             >
               <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                  <TrendingUp size={15} style={{ color: "var(--brand)" }} />
-                  <span className="ds-label">Razorpay Evaluation Benchmark</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                  <TrendingUp size={14} style={{ color: "var(--brand)" }} />
+                  <span className="ds-label" style={{ fontSize: 11 }}>Razorpay Evaluation Benchmark</span>
                 </div>
-                <h2 style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.015em", color: "var(--text-strong)", margin: 0 }}>
+                <h2 style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-0.015em", color: "var(--text-strong)", margin: 0 }}>
                   Revenue Recovery Comparison
                 </h2>
-                <p style={{ fontSize: 12.5, color: "var(--text-soft)", marginTop: 2 }}>
+                <p style={{ fontSize: 12, color: "var(--text-soft)", marginTop: 2, marginBottom: 0 }}>
                   Naive Immediate Retry vs RevRec Autonomous Engine
                 </p>
               </div>
-              <button className="ds-btn-ghost ds-btn-icon" onClick={() => setIsBenchmarkOpen(false)}>
-                <X size={15} />
+              <button
+                onClick={() => setIsBenchmarkOpen(false)}
+                aria-label="Close Benchmark Report"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  border: "none",
+                  background: "transparent",
+                  color: "var(--text-soft)",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                  padding: 0,
+                  flexShrink: 0,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = "var(--bg-subtle)";
+                  e.currentTarget.style.color = "var(--text-strong)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = "transparent";
+                  e.currentTarget.style.color = "var(--text-soft)";
+                }}
+              >
+                <X size={17} strokeWidth={2} />
               </button>
             </div>
 
             {/* 3 impact highlight cards */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, padding: "16px 24px 0" }}>
-              <div style={{ background: "var(--bg-subtle)", borderRadius: 8, padding: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, padding: "14px 22px 0" }}>
+              <div style={{ background: "var(--bg-subtle)", borderRadius: 10, padding: "10px 14px" }}>
                 <span className="ds-label" style={{ fontSize: 10.5 }}>Recovery Rate Lift</span>
-                <p style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--green-text)", margin: "4px 0 2px" }}>
+                <p style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--green-text)", margin: "3px 0 1px" }}>
                   +{benchmark.comparison.businessImpact.recoveryRateLiftPercent}%
                 </p>
-                <p style={{ fontSize: 11.5, color: "var(--text-faint)", margin: 0 }}>
+                <p style={{ fontSize: 11, color: "var(--text-faint)", margin: 0 }}>
                   {benchmark.comparison.naiveBaseline.recoveryRatePercent}% naive → {benchmark.comparison.revRecEngine.recoveryRatePercent}% RevRec
                 </p>
               </div>
-              <div style={{ background: "var(--bg-subtle)", borderRadius: 8, padding: 14 }}>
+              <div style={{ background: "var(--bg-subtle)", borderRadius: 10, padding: "10px 14px" }}>
                 <span className="ds-label" style={{ fontSize: 10.5 }}>Net Revenue Lift</span>
-                <p style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--blue-text)", margin: "4px 0 2px" }}>
+                <p style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--blue-text)", margin: "3px 0 1px" }}>
                   ₹{Math.round(benchmark.comparison.businessImpact.netAdditionalRevenueInPaise / 100).toLocaleString("en-IN")}
                 </p>
-                <p style={{ fontSize: 11.5, color: "var(--text-faint)", margin: 0 }}>Pure incremental recovery</p>
+                <p style={{ fontSize: 11, color: "var(--text-faint)", margin: 0 }}>Pure incremental recovery</p>
               </div>
-              <div style={{ background: "var(--bg-subtle)", borderRadius: 8, padding: 14 }}>
+              <div style={{ background: "var(--bg-subtle)", borderRadius: 10, padding: "10px 14px" }}>
                 <span className="ds-label" style={{ fontSize: 10.5 }}>AI Cost ROI</span>
-                <p style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--purple-text)", margin: "4px 0 2px" }}>
+                <p style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--purple-text)", margin: "3px 0 1px" }}>
                   {benchmark.comparison.businessImpact.roiMultiple}
                 </p>
-                <p style={{ fontSize: 11.5, color: "var(--text-faint)", margin: 0 }}>Revenue per rupee of LLM</p>
+                <p style={{ fontSize: 11, color: "var(--text-faint)", margin: 0 }}>Revenue per rupee of LLM</p>
               </div>
             </div>
 
             {/* Comparison table */}
-            <div style={{ padding: "16px 24px", overflowX: "auto" }}>
+            <div style={{ padding: "12px 22px 18px", overflowX: "auto" }}>
               <table className="ds-table">
                 <thead>
                   <tr>
-                    <th>Evaluation Dimension</th>
-                    <th>Naive Retry</th>
-                    <th>RevRec Engine</th>
+                    <th style={{ padding: "8px 12px", fontSize: 11 }}>Evaluation Dimension</th>
+                    <th style={{ padding: "8px 12px", fontSize: 11 }}>Naive Retry</th>
+                    <th style={{ padding: "8px 12px", fontSize: 11 }}>RevRec Engine</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -343,31 +369,17 @@ export function SimulationControls({
                     },
                   ].map((row, i) => (
                     <tr key={i}>
-                      <td style={{ fontWeight: 500, color: "var(--text-strong)", fontSize: 13 }}>{row.metric}</td>
-                      <td style={{ color: row.naiveBad ? "var(--red-text)" : "var(--text-soft)", fontWeight: row.naiveBad ? 500 : 400, fontSize: 13 }}>
+                      <td style={{ fontWeight: 500, color: "var(--text-strong)", fontSize: 12.5, padding: "8px 12px" }}>{row.metric}</td>
+                      <td style={{ color: row.naiveBad ? "var(--red-text)" : "var(--text-soft)", fontWeight: row.naiveBad ? 500 : 400, fontSize: 12.5, padding: "8px 12px" }}>
                         {row.naive}
                       </td>
-                      <td style={{ color: row.revrecGood ? "var(--green-text)" : "var(--text-strong)", fontWeight: 600, fontSize: 13 }}>
+                      <td style={{ color: row.revrecGood ? "var(--green-text)" : "var(--text-strong)", fontWeight: 600, fontSize: 12.5, padding: "8px 12px" }}>
                         {row.revrec}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
-
-            {/* Modal footer */}
-            <div
-              style={{
-                padding: "14px 24px",
-                borderTop: "1px solid var(--border)",
-                display: "flex",
-                justifyContent: "flex-end",
-              }}
-            >
-              <button className="ds-btn ds-btn-ghost" onClick={() => setIsBenchmarkOpen(false)} style={{ height: 32, fontSize: 12.5 }}>
-                Close Report
-              </button>
             </div>
           </div>
           </div>
