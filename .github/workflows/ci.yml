@@ -38,11 +38,13 @@ jobs:
 
     env:
       NODE_ENV: test
-      DATABASE_URL: postgresql://revrec:revrec_dev@localhost:5432/revrec_db
-      REDIS_URL: redis://localhost:6379
+      DATABASE_URL: postgresql://revrec:revrec_dev@127.0.0.1:5432/revrec_db
+      REDIS_URL: redis://127.0.0.1:6379
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
       DASHBOARD_API_KEY: ci-test-api-key
-      RAZORPAY_KEY_ID: rzp_test_ci
-      RAZORPAY_KEY_SECRET: ci_secret
+      RAZORPAY_KEY_ID: ""
+      RAZORPAY_KEY_SECRET: ""
       RAZORPAY_WEBHOOK_SECRET: ci_webhook_secret
       GROQ_API_KEY: ""
 
@@ -71,6 +73,9 @@ jobs:
       - name: Run Prisma migrations
         run: npx prisma migrate deploy
         working-directory: packages/db
+
+      - name: Seed database for tests
+        run: npm run db:seed --workspace=packages/db
 
       - name: TypeCheck — packages/types
         run: npx tsc --project packages/types/tsconfig.json --noEmit

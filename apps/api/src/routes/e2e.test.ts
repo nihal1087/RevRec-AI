@@ -25,6 +25,7 @@ jest.mock("@revrec/db", () => {
   return {
     ...actual,
     prisma: {
+      ...actual.prisma,
       promiseToPay: {
         findFirst: jest.fn().mockResolvedValue(null),
       },
