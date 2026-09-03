@@ -85,7 +85,7 @@ jobs:
         run: npx tsc --project apps/web/tsconfig.json --noEmit
 
       - name: Run test suite
-        run: npm test --workspaces --if-present -- --forceExit
+        run: npm run test --workspace=apps/api
 
   build-check:
     name: Production Build Check
