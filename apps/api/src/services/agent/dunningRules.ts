@@ -137,11 +137,12 @@ export async function validateAgentAction(
     }
 
     // ── 5. CHANNEL COOLDOWN CHECK (MIN 4 HOURS) ───────────────────────────
+    const targetChannel = DunningChannel.WHATSAPP;
     const fourHoursAgo = new Date(now.getTime() - MIN_CHANNEL_COOLDOWN_HOURS * 60 * 60 * 1000);
     const recentSameChannelContact = await prisma.dunningContact.findFirst({
       where: {
         customerId: context.customerId,
-        channel: DunningChannel.WHATSAPP,
+        channel: targetChannel,
         sentAt: { gte: fourHoursAgo },
       },
       orderBy: { sentAt: "desc" },
@@ -151,7 +152,7 @@ export async function validateAgentAction(
       return {
         allowed: false,
         ruleName: "CHANNEL_COOLDOWN_ACTIVE",
-        violationReason: `Channel WHATSAPP was contacted less than ${MIN_CHANNEL_COOLDOWN_HOURS} hours ago. Cooldown in effect.`,
+        violationReason: `Channel ${targetChannel} was contacted less than ${MIN_CHANNEL_COOLDOWN_HOURS} hours ago. Cooldown in effect.`,
       };
     }
   }

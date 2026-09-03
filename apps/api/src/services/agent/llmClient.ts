@@ -1,5 +1,5 @@
 /**
- * services/agent/llmClient.ts — Groq LLM Client (openai/gpt-oss-120b)
+ * services/agent/llmClient.ts — Groq LLM Client
  *
  * Ultra-fast inference on Groq LPUs with strict JSON structured output enforcement.
  * Powers the Bounded Recovery Agent and Conversational Hinglish WhatsApp Bot.
@@ -45,7 +45,7 @@ function getGroqClient(): Groq | null {
 
 /**
  * Calls Groq with strict JSON output mode and system instructions.
- * Uses openai/gpt-oss-120b by default for state-of-the-art Hinglish & tool calling.
+ * Uses the Groq LPU inference API (model configured via GROQ_MODEL env var).
  */
 export async function callGroqStructured(
   prompt: string,
@@ -113,11 +113,6 @@ export async function callGroqStructured(
     return generateDeterministicFallback(prompt, startTime);
   }
 }
-
-/**
- * Backward compatibility alias for existing service imports.
- */
-export const callGeminiStructured = callGroqStructured;
 
 /**
  * Deterministic fallback engine when offline or if Groq API is unreachable.

@@ -19,6 +19,7 @@
  */
 
 import Redis from "ioredis";
+import { logger } from "./logger";
 
 // We need two separate Redis connections:
 // 1. A general-purpose client for idempotency keys, rate limiting, caching
@@ -41,7 +42,7 @@ function createRedisConnection(
     // Reconnect strategy: exponential backoff capped at 30 seconds
     retryStrategy: (times: number) => {
       const delay = Math.min(times * 500, 30000);
-      console.warn(
+      logger.warn(
         `[Redis:${clientName}] Reconnect attempt ${times}, waiting ${delay}ms`
       );
       return delay;
@@ -65,20 +66,20 @@ function createRedisConnection(
       });
 
   client.on("connect", () => {
-    console.log(`[Redis:${clientName}] ✅ Connected to Redis`);
+    logger.info(`[Redis:${clientName}] ✅ Connected to Redis`);
   });
 
   client.on("ready", () => {
-    console.log(`[Redis:${clientName}] ✅ Ready to accept commands`);
+    logger.info(`[Redis:${clientName}] ✅ Ready to accept commands`);
   });
 
   client.on("error", (err: Error) => {
     // Log but don't crash — ioredis will auto-reconnect
-    console.error(`[Redis:${clientName}] ❌ Error:`, err.message);
+    logger.error(`[Redis:${clientName}] ❌ Error:`, err.message);
   });
 
   client.on("close", () => {
-    console.warn(`[Redis:${clientName}] ⚠️  Connection closed`);
+    logger.warn(`[Redis:${clientName}] ⚠️  Connection closed`);
   });
 
   return client;
@@ -119,7 +120,7 @@ export async function closeAllRedisConnections(): Promise<void> {
       client.quit().then(() => undefined),
       new Promise<void>((resolve) =>
         setTimeout(() => {
-          console.warn(`[Redis:${name}] quit() timed out — forcing disconnect()`);
+          logger.warn(`[Redis:${name}] quit() timed out — forcing disconnect()`);
           client.disconnect();
           resolve();
         }, 3000)
@@ -130,5 +131,5 @@ export async function closeAllRedisConnections(): Promise<void> {
   if (generalRedisInstance) closePromises.push(gracefulQuit(generalRedisInstance, "general"));
   if (bullmqRedisInstance)  closePromises.push(gracefulQuit(bullmqRedisInstance, "bullmq"));
   await Promise.all(closePromises);
-  console.log("[Redis] All connections closed gracefully");
+  logger.info("[Redis] All connections closed gracefully");
 }

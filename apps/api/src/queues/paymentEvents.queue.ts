@@ -24,6 +24,7 @@
 
 import { Queue } from "bullmq";
 import { getBullMQRedisClient } from "../config/redis";
+import { logger } from "../config/logger";
 
 // ── Job Data Contract ─────────────────────────────────────────────────────────
 
@@ -40,6 +41,7 @@ export interface PaymentEventJobData {
   readonly gateway: string;       // e.g., "razorpay"
   readonly rawPayload: Record<string, unknown>; // Raw webhook payload
   readonly receivedAt: string;    // ISO 8601 timestamp of webhook receipt
+  readonly traceId?: string;      // X-Correlation-ID for distributed tracing
 }
 
 // ── Queue Definition ──────────────────────────────────────────────────────────
@@ -67,5 +69,5 @@ export const paymentEventsQueue = new Queue<PaymentEventJobData>(
 
 // Log queue-level events (not job-level — those are in the worker)
 paymentEventsQueue.on("error", (err: Error) => {
-  console.error("[Queue:payment-events] ❌ Queue error:", err.message);
+  logger.error("[Queue:payment-events] ❌ Queue error:", err.message);
 });

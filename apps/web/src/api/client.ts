@@ -103,7 +103,8 @@ export interface WorkflowItem {
   promiseToPays?: Array<{
     id: string;
     promisedAmountInPaise: number;
-    promisedAt: string;
+    promisedByDate: string;
+    promisedAt?: string;
     status: string;
     confidenceScore: number;
     createdAt: string;
@@ -123,22 +124,35 @@ export interface WorkflowItem {
 
 const API_BASE = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/+$/, "") : "";
 
+// API key for dashboard endpoints — set VITE_API_KEY in .env to match DASHBOARD_API_KEY on the backend.
+// When not set, requests go through unauthenticated (dev/demo mode where backend bypasses auth).
+const API_KEY = import.meta.env.VITE_API_KEY as string | undefined;
+
+/** Returns default headers for all API requests, including auth if configured. */
+function apiHeaders(extra?: Record<string, string>): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
+    ...extra,
+  };
+}
+
 export async function fetchAnalyticsSummary(): Promise<AnalyticsSummary> {
-  const res = await fetch(`${API_BASE}/api/analytics/summary`);
+  const res = await fetch(`${API_BASE}/api/analytics/summary`, { headers: apiHeaders() });
   if (!res.ok) throw new Error("Failed to fetch summary analytics");
   const json = await res.json();
   return json.data;
 }
 
 export async function fetchTimeseries(): Promise<TimeseriesPoint[]> {
-  const res = await fetch(`${API_BASE}/api/analytics/timeseries`);
+  const res = await fetch(`${API_BASE}/api/analytics/timeseries`, { headers: apiHeaders() });
   if (!res.ok) throw new Error("Failed to fetch timeseries");
   const json = await res.json();
   return json.data;
 }
 
 export async function fetchCategoryAnalytics(): Promise<CategoryAnalytics> {
-  const res = await fetch(`${API_BASE}/api/analytics/categories`);
+  const res = await fetch(`${API_BASE}/api/analytics/categories`, { headers: apiHeaders() });
   if (!res.ok) throw new Error("Failed to fetch category analytics");
   const json = await res.json();
   return json.data;
@@ -146,21 +160,21 @@ export async function fetchCategoryAnalytics(): Promise<CategoryAnalytics> {
 
 export async function fetchWorkflows(stage?: string): Promise<WorkflowItem[]> {
   const url = stage ? `${API_BASE}/api/recovery?stage=${stage}&limit=500` : `${API_BASE}/api/recovery?limit=500`;
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: apiHeaders() });
   if (!res.ok) throw new Error("Failed to fetch workflows");
   const json = await res.json();
   return json.data;
 }
 
 export async function fetchWorkflowDetails(id: string): Promise<WorkflowItem> {
-  const res = await fetch(`${API_BASE}/api/recovery/${id}`);
+  const res = await fetch(`${API_BASE}/api/recovery/${id}`, { headers: apiHeaders() });
   if (!res.ok) throw new Error("Failed to fetch workflow details");
   const json = await res.json();
   return json.data;
 }
 
 export async function triggerManualRetry(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/recovery/${id}/retry-now`, { method: "POST" });
+  const res = await fetch(`${API_BASE}/api/recovery/${id}/retry-now`, { method: "POST", headers: apiHeaders() });
   if (!res.ok) throw new Error("Failed to trigger retry");
 }
 
@@ -184,7 +198,7 @@ export interface AgentDecisionResponse {
 }
 
 export async function triggerAgentDecision(id: string): Promise<AgentDecisionResponse> {
-  const res = await fetch(`${API_BASE}/api/agent/decide/${id}`, { method: "POST" });
+  const res = await fetch(`${API_BASE}/api/agent/decide/${id}`, { method: "POST", headers: apiHeaders() });
   if (!res.ok) {
     const errJson = await res.json().catch(() => ({}));
     throw new Error(errJson.error || "Failed to run agent decision");
@@ -193,22 +207,25 @@ export async function triggerAgentDecision(id: string): Promise<AgentDecisionRes
 }
 
 export async function sendChatMessage(
-  customerId: string,
-  userMessage: string,
+  customerId?: string,
+  userMessage: string = "",
   workflowId?: string
 ): Promise<{
   replyText: string;
   intent: string;
   sentiment: string;
   actionTaken: string;
+  workflowId?: string;
+  customerId?: string;
+  customerName?: string;
   paymentUrl?: string;
   promiseToPayId?: string;
 }> {
   const res = await fetch(`${API_BASE}/api/agent/bot/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: apiHeaders(),
     body: JSON.stringify({
-      customerId,
+      ...(customerId ? { customerId } : {}),
       userMessage,
       channel: "WHATSAPP",
       ...(workflowId ? { workflowId } : {}),
@@ -259,16 +276,23 @@ export async function triggerBatchSimulation(count: number = 25): Promise<{
 }> {
   const res = await fetch(`${API_BASE}/api/simulate/batch`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: apiHeaders(),
     body: JSON.stringify({ count }),
   });
-  if (!res.ok) throw new Error("Batch simulation failed");
+  if (!res.ok) {
+    let detail = "Batch simulation failed";
+    try {
+      const errJson = await res.json();
+      if (errJson?.error) detail = errJson.error;
+    } catch { /* ignore parse errors */ }
+    throw new Error(detail);
+  }
   const json = await res.json();
   return json.data;
 }
 
 export async function fetchBenchmarkReport(): Promise<BenchmarkReport> {
-  const res = await fetch(`${API_BASE}/api/simulate/benchmark`);
+  const res = await fetch(`${API_BASE}/api/simulate/benchmark`, { headers: apiHeaders() });
   if (!res.ok) throw new Error("Failed to fetch benchmark report");
   const json = await res.json();
   return json.data;
@@ -277,7 +301,7 @@ export async function fetchBenchmarkReport(): Promise<BenchmarkReport> {
 export async function resetDemoData(): Promise<void> {
   const res = await fetch(`${API_BASE}/api/simulate/reset`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: apiHeaders(),
     body: JSON.stringify({ confirm: true }),
   });
   if (!res.ok) throw new Error("Reset demo data failed");
@@ -296,6 +320,7 @@ export interface CommunicationItem {
   customerResponse?: string | null;
   customer: {
     id: string;
+    externalId?: string;
     name: string;
     email: string;
     phone: string;
@@ -332,7 +357,7 @@ export async function fetchCommunications(channel?: string, search?: string): Pr
   const params = new URLSearchParams();
   if (channel && channel !== "ALL") params.append("channel", channel);
   if (search) params.append("search", search);
-  const res = await fetch(`${API_BASE}/api/communications?${params.toString()}`);
+  const res = await fetch(`${API_BASE}/api/communications?${params.toString()}`, { headers: apiHeaders() });
   if (!res.ok) throw new Error("Failed to fetch communications");
   return res.json();
 }
@@ -359,7 +384,7 @@ export interface RecoveryFunnelData {
 }
 
 export async function fetchRecoveryFunnel(): Promise<RecoveryFunnelData> {
-  const res = await fetch(`${API_BASE}/api/analytics/funnel`);
+  const res = await fetch(`${API_BASE}/api/analytics/funnel`, { headers: apiHeaders() });
   if (!res.ok) throw new Error("Failed to fetch recovery funnel");
   const json = await res.json();
   return json.data;

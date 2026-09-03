@@ -25,6 +25,7 @@ import {
   releaseIdempotencyKey,
 } from "../services/idempotency.service";
 import { paymentEventsQueue } from "../queues/paymentEvents.queue";
+import { logger } from "../config/logger";
 
 // ── Zod Schema for Razorpay Webhook Payload ───────────────────────────────────
 
@@ -124,7 +125,7 @@ router.post(
 
     // ── Log unsupported but valid events ───────────────────────────────────
     if (!SUPPORTED_EVENT_TYPES.has(webhook.event)) {
-      console.log(
+      logger.info(
         `[Webhook] Unsupported event type received: ${webhook.event} — acknowledging without processing`
       );
       res.status(200).json({
@@ -144,7 +145,7 @@ router.post(
       // Redis is down — we can't reliably deduplicate.
       // Log the error and ALLOW processing (relying on PostgreSQL unique constraint).
       // Dropping events is worse than occasional duplicates (second layer catches them).
-      console.error(
+      logger.error(
         "[Webhook] ⚠️  Redis unavailable for idempotency check — proceeding without it:",
         redisError
       );
@@ -152,7 +153,7 @@ router.post(
     }
 
     if (!isNewEvent) {
-      console.log(
+      logger.info(
         `[Webhook] ⏭️  Duplicate event skipped: ${idempotencyKey}`
       );
       // Return 200 — NOT 4xx. If we return 4xx, Razorpay retries the event.
@@ -173,6 +174,7 @@ router.post(
           gateway: "razorpay",
           rawPayload: webhook.payload,
           receivedAt: new Date().toISOString(),
+          ...(res.locals["traceId"] ? { traceId: res.locals["traceId"] as string } : {}),
         },
         {
           // Using eventId as jobId prevents BullMQ from queueing duplicate
@@ -184,12 +186,12 @@ router.post(
       // BullMQ enqueue failed — release the idempotency lock so Razorpay can retry
       await releaseIdempotencyKey(idempotencyKey).catch(() => {
         // Best-effort release — if this also fails, the event may be dropped
-        console.error("[Webhook] Failed to release idempotency key after queue error");
+        logger.error("[Webhook] Failed to release idempotency key after queue error");
       });
       throw queueError; // Let Express global error handler return 500 → Razorpay retries
     }
 
-    console.log(
+    logger.info(
       `[Webhook] ✅ Queued: ${webhook.event} | eventId: ${idempotencyKey}`
     );
 

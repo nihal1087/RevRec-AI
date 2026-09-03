@@ -12,13 +12,9 @@
  *   - HIGH:   Risk Score > 60 (or History Score < 50) → Recovery Probability ~20-50%
  */
 
-import { DeclineCategory } from "@revrec/types";
+import { DeclineCategory, RiskTier } from "@revrec/types";
 
-export enum RiskTier {
-  LOW = "LOW",
-  MEDIUM = "MEDIUM",
-  HIGH = "HIGH",
-}
+export { RiskTier };
 
 export interface CustomerRiskProfile {
   riskScore: number;

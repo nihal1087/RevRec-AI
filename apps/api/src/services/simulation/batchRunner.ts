@@ -8,7 +8,7 @@
  */
 
 import { prisma, RecoveryStage, RecoveryMethod, DunningChannel, AuditEventType, PromiseStatus } from "@revrec/db";
-import { DeclineCategory } from "@revrec/types";
+import { DeclineCategory, AgentExecutionStatus } from "@revrec/types";
 import { generateBatchScenarios } from "./scenarioGenerator";
 import { classifyPaymentFailure } from "../rca.service";
 import { calculateNextRetrySchedule } from "../retrySequencer.service";
@@ -423,7 +423,7 @@ export async function runBatchSimulation(batchSize: number = 25): Promise<BatchS
         confidenceScore: 0.92,
         policyCheckPassed: true,
         policyCheckDetails: "ALL_POLICIES_PASSED: Quiet hours, rate limits, and discount caps compliant",
-        executionStatus: "SUCCESS",
+        executionStatus: AgentExecutionStatus.EXECUTED,
         llmLatencyMs: Math.floor(110 + Math.random() * 180),
         llmTokensUsed: 140,
         estimatedCostInPaise: 15,

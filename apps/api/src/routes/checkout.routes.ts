@@ -22,10 +22,19 @@ import { retryExecutionQueue } from "../queues/retryExecution.queue";
 import { classifyPaymentFailure } from "../services/rca.service";
 import { evaluateCustomerRisk } from "../services/customerRisk.service";
 import { calculateNextRetrySchedule } from "../services/retrySequencer.service";
+import { recordAutomaticFailureOutreach } from "../services/outreach.service";
 import { prisma, PaymentStatus, RecoveryStage, AuditEventType, DeclineCategory, RecoveryMethod, PromiseStatus, Prisma } from "@revrec/db";
 import { logger } from "../config/logger";
+import { rateLimiter } from "../middleware/rateLimiter";
 
 const router = Router();
+
+const checkoutRateLimiter = rateLimiter({
+  windowSeconds: 60,
+  maxRequests: 30,
+  prefix: "checkout",
+  message: "Too many checkout requests. Please wait before attempting again.",
+});
 
 // ── Razorpay Client (lazy-initialised so the app starts even without keys) ────
 function getRazorpayClient(): Razorpay | null {
@@ -41,7 +50,7 @@ const CreateOrderSchema = z.object({
   amountInPaise: z.number().int().positive().max(50000000), // max ₹5 lakh
   productName: z.string().min(1).max(120),
   customerName: z.string().optional().default("Nihal"),
-  customerEmail: z.string().email().optional().default("nihal@revrec.ai"),
+  customerEmail: z.string().email().optional().default("nihalonly772@gmail.com"),
   customerPhone: z.string().optional().default("+918789600276"),
 });
 
@@ -51,8 +60,12 @@ const SimulateFailureSchema = z.object({
   errorCode: z.string().min(1),         // e.g. "GATEWAY_TIMEOUT"
   errorDescription: z.string().default(""),
   customerName: z.string().default("Nihal"),
-  customerEmail: z.string().default("nihal@revrec.ai"),
+  customerEmail: z.string().default("nihalonly772@gmail.com"),
   customerPhone: z.string().default("+918789600276"),
+});
+
+const SimulateRecoverySchema = z.object({
+  workflowId: z.string().min(1, "workflowId is required"),
 });
 
 // ── POST /api/checkout/order ──────────────────────────────────────────────────
@@ -61,7 +74,7 @@ const SimulateFailureSchema = z.object({
  * Creates a Razorpay order_id for the frontend Razorpay.js modal.
  * Falls back to a mock order_id when RAZORPAY_KEY_ID is not set (offline demo).
  */
-router.post("/order", async (req: Request, res: Response): Promise<void> => {
+router.post("/order", checkoutRateLimiter, async (req: Request, res: Response): Promise<void> => {
   const parseResult = CreateOrderSchema.safeParse(req.body);
   if (!parseResult.success) {
     res.status(422).json({ error: "Invalid request", details: parseResult.error.flatten() });
@@ -130,7 +143,15 @@ router.post("/order", async (req: Request, res: Response): Promise<void> => {
  */
 router.post(
   "/simulate-failure",
+  checkoutRateLimiter,
   async (req: Request, res: Response): Promise<void> => {
+    // Gate: block entirely in production — this endpoint injects fake payment failures
+    // and must NEVER be exposed outside development/staging environments.
+    if (process.env["NODE_ENV"] === "production") {
+      res.status(403).json({ error: "This endpoint is disabled in production environments" });
+      return;
+    }
+
     const parseResult = SimulateFailureSchema.safeParse(req.body);
     if (!parseResult.success) {
       res.status(422).json({ error: "Invalid request", details: parseResult.error.flatten() });
@@ -215,7 +236,7 @@ router.post(
           },
         });
 
-        const existingWf = await tx.recoveryWorkflow.findFirst({
+        const existingWf = await tx.recoveryWorkflow.findUnique({
           where: { paymentId: payment.id },
         });
 
@@ -254,7 +275,7 @@ router.post(
               errorDescription,
               amountInPaise,
               receivedAt: new Date().toISOString(),
-              rawEntity: rawPayload.payment.entity as unknown as Prisma.InputJsonValue,
+              rawEntity: JSON.parse(JSON.stringify(rawPayload.payment.entity)) as Prisma.InputJsonValue,
             },
             amountInPaise,
             outcome: "FAILURE",
@@ -281,6 +302,22 @@ router.post(
             outcome: "SUCCESS",
           },
         });
+
+        // ── Automatically Record Customer Outreach in Communications Hub ──
+        await recordAutomaticFailureOutreach(
+          {
+            workflowId: wf.id,
+            paymentId: payment.id,
+            customerId: customer.id,
+            customerName,
+            customerPhone,
+            amountInPaise,
+            category: rcaResult.category,
+            errorCode,
+            errorDescription,
+          },
+          tx
+        );
 
         let pendingRetry: {
           data: {
@@ -510,13 +547,15 @@ function getRcaHint(errorCode: string): {
  * Updates the workflow to RECOVERED, sets payment status to CAPTURED,
  * fulfills any active PromiseToPay, marks dunning messages as clicked, and logs an audit event.
  */
-router.post("/simulate-recovery", async (req: Request, res: Response) => {
+router.post("/simulate-recovery", checkoutRateLimiter, async (req: Request, res: Response) => {
   try {
-    const { workflowId } = req.body;
-    if (!workflowId) {
-      res.status(400).json({ error: "workflowId is required" });
+    const parseResult = SimulateRecoverySchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(422).json({ error: "Invalid request", details: parseResult.error.flatten() });
       return;
     }
+
+    const { workflowId } = parseResult.data;
 
     const workflow = await prisma.recoveryWorkflow.findUnique({
       where: { id: workflowId },

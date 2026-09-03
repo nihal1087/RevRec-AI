@@ -176,37 +176,41 @@ export function WorkflowDrawer({
             top: 0,
             background: "var(--bg-surface)",
             borderBottom: "1px solid var(--border)",
-            padding: "20px 24px",
+            padding: "16px",
             zIndex: 10,
             display: "flex",
             flexDirection: "column",
             gap: 8,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flex: "1 1 auto", overflow: "hidden" }}>
               <span
                 style={{
                   fontFamily: "monospace",
                   fontSize: 11,
                   color: "var(--text-faint)",
                   background: "var(--bg-subtle)",
-                  padding: "2px 8px",
+                  padding: "2px 6px",
                   borderRadius: 4,
-                  flexShrink: 0,
+                  flexShrink: 1,
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
-                  maxWidth: 180,
+                  maxWidth: 130,
                 }}
+                title={workflow.id}
               >
                 {workflow.id}
               </span>
-              <StagePill stage={workflow.stage} />
+              <div style={{ flexShrink: 0 }}>
+                <StagePill stage={workflow.stage} />
+              </div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
               {onOpenFullCase && (
                 <button
+                  type="button"
                   onClick={() => {
                     onOpenFullCase(workflow);
                   }}
@@ -214,32 +218,46 @@ export function WorkflowDrawer({
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 4,
-                    padding: "4px 10px",
+                    padding: "4px 8px",
                     borderRadius: 6,
                     border: "1px solid var(--border)",
                     backgroundColor: "var(--bg-subtle)",
                     color: "var(--brand)",
-                    fontSize: 11.5,
+                    fontSize: 11,
                     fontWeight: 600,
                     cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                    height: 28,
+                    lineHeight: 1,
                   }}
+                  title="Open Full Case Details Page"
                 >
                   <span>Full View</span>
-                  <ArrowUpRight size={13} />
+                  <ArrowUpRight size={12} style={{ flexShrink: 0 }} />
                 </button>
               )}
-              <button className="ds-btn ds-btn-ghost ds-btn-icon" onClick={onClose} style={{ flexShrink: 0 }}>
-                <X size={16} />
+              <button
+                type="button"
+                className="ds-btn ds-btn-ghost ds-btn-icon"
+                onClick={onClose}
+                style={{ flexShrink: 0, width: 28, height: 28, padding: 0 }}
+                aria-label="Close drawer"
+              >
+                <X size={15} />
               </button>
             </div>
           </div>
           <h2
             style={{
-              fontSize: 20,
+              fontSize: 18,
               fontWeight: 700,
               letterSpacing: "-0.015em",
               color: "var(--text-strong)",
               margin: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
           >
             {workflow.customer.name}
@@ -247,12 +265,12 @@ export function WorkflowDrawer({
         </div>
 
         {/* ── Sheet body ────────────────────────────────── */}
-        <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 24 }}>
+        <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 20 }}>
 
           {/* Section 1 — Payment Details */}
           <div>
-            <span className="ds-label" style={{ display: "block", marginBottom: 12 }}>Payment Details</span>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+            <span className="ds-label" style={{ display: "block", marginBottom: 10 }}>Payment Details</span>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 14 }}>
               <div
                 style={{
                   background: "var(--bg-subtle)",

@@ -329,23 +329,30 @@ model AuditLog {
 }
 
 // AGENT EXECUTION — AI Decision Trail
+enum AgentExecutionStatus {
+  EXECUTED
+  REJECTED_BY_POLICY
+  EXECUTION_FAILED
+  SKIPPED_TERMINAL_STAGE
+}
+
 model AgentExecution {
-  id                   String           @id @default(uuid())
+  id                   String                @id @default(uuid())
   workflowId           String
-  workflow             RecoveryWorkflow @relation(fields: [workflowId], references: [id])
-  reasoning            String           @db.Text
+  workflow             RecoveryWorkflow      @relation(fields: [workflowId], references: [id])
+  reasoning            String                @db.Text
   selectedTool         String
   toolInput            Json
   confidenceScore      Float
   policyCheckPassed    Boolean
   policyCheckDetails   String
-  executionStatus      String
+  executionStatus      AgentExecutionStatus
   executionError       String?
   llmLatencyMs         Int
   llmTokensUsed        Int
   // Fix M11: Float instead of Int — LLM costs are sub-paisa (e.g. 0.23 paise/call)
-  estimatedCostInPaise Float            @default(0)
-  createdAt            DateTime         @default(now())
+  estimatedCostInPaise Float                 @default(0)
+  createdAt            DateTime              @default(now())
 
   @@index([workflowId])
   @@index([createdAt])

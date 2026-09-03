@@ -10,9 +10,9 @@
  */
 
 import { z } from "zod";
-import { AgentDecision, AgentToolInput, AgentToolName, DeclineCategory } from "@revrec/types";
+import { AgentDecision, AgentToolInput, AgentToolName, DeclineCategory, AgentExecutionStatus } from "@revrec/types";
 import { prisma, AuditEventType, Prisma } from "@revrec/db";
-import { callGeminiStructured } from "./llmClient";
+import { callGroqStructured } from "./llmClient";
 import { validateAgentAction } from "./dunningRules";
 import { executeAgentTool, ToolExecutionResult } from "./tools";
 import { logger } from "../../config/logger";
@@ -131,7 +131,7 @@ export async function runAgentDecision(workflowId: string): Promise<AgentRunResu
     };
   }
 
-  const category = (workflow.payment.declineCategory as unknown as DeclineCategory) ?? DeclineCategory.SOFT;
+  const category = (workflow.payment.declineCategory as DeclineCategory | null) ?? DeclineCategory.SOFT;
 
   // 2. Build structured contextual prompt
   const userPrompt = `
@@ -173,8 +173,8 @@ Determine the single best, compliant action to recover this revenue. Return stru
 Note: toolInput schema varies by tool. For send_whatsapp_recovery_link, include 'messageTemplateKey' and 'includeDiscount' as shown above.
 `;
 
-  // 3. Invoke LLM (openai/gpt-oss-120b)
-  const llmResult = await callGeminiStructured(userPrompt, SYSTEM_PROMPT);
+  // 3. Invoke LLM via Groq LPU
+  const llmResult = await callGroqStructured(userPrompt, SYSTEM_PROMPT);
 
   // 4. Validate output with Zod
   const parseResult = AgentDecisionSchema.safeParse(llmResult.structuredJson);
@@ -193,7 +193,7 @@ Note: toolInput schema varies by tool. For send_whatsapp_recovery_link, include 
     decision = {
       workflowId: workflow.id,
       reasoning: "Safe fallback applied due to schema validation constraint.",
-      confidenceScore: 0.85,
+      confidenceScore: 0.20,
       selectedTool: AgentToolName.RETRY_PAYMENT,
       toolInput: {
         tool: AgentToolName.RETRY_PAYMENT,
@@ -213,7 +213,7 @@ Note: toolInput schema varies by tool. For send_whatsapp_recovery_link, include 
   });
 
   let toolToExecute: AgentToolInput = decision.toolInput;
-  let executionStatus: "EXECUTED" | "REJECTED_BY_POLICY" | "EXECUTION_FAILED" = "EXECUTED";
+  let executionStatus: AgentExecutionStatus = AgentExecutionStatus.EXECUTED;
   let executionError: string | undefined;
   let toolResult: ToolExecutionResult | undefined;
 
@@ -222,13 +222,13 @@ Note: toolInput schema varies by tool. For send_whatsapp_recovery_link, include 
     try {
       toolResult = await executeAgentTool(toolToExecute, workflow.id);
     } catch (err) {
-      executionStatus = "EXECUTION_FAILED";
+      executionStatus = AgentExecutionStatus.EXECUTION_FAILED;
       executionError = (err as Error).message;
       logger.error(`[Agent] Tool execution failed: ${executionError}`);
     }
   } else {
     logger.warn(`[Agent] ⚠️ Policy Check REJECTED: ${policyCheck.ruleName} — ${policyCheck.violationReason}`);
-    executionStatus = "REJECTED_BY_POLICY";
+    executionStatus = AgentExecutionStatus.REJECTED_BY_POLICY;
 
     // Write audit log for policy rejection
     await prisma.auditLog.create({
@@ -255,10 +255,10 @@ Note: toolInput schema varies by tool. For send_whatsapp_recovery_link, include 
       toolToExecute = policyCheck.recommendedAlternative;
       try {
         toolResult = await executeAgentTool(toolToExecute, workflow.id);
-        executionStatus = "EXECUTED";
+        executionStatus = AgentExecutionStatus.EXECUTED;
       } catch (err) {
         executionError = (err as Error).message;
-        executionStatus = "EXECUTION_FAILED";
+        executionStatus = AgentExecutionStatus.EXECUTION_FAILED;
       }
     }
   }
@@ -269,7 +269,7 @@ Note: toolInput schema varies by tool. For send_whatsapp_recovery_link, include 
       workflowId: workflow.id,
       reasoning: decision.reasoning,
       selectedTool: decision.selectedTool,
-      toolInput: toolToExecute as unknown as Prisma.InputJsonValue,
+      toolInput: JSON.parse(JSON.stringify(toolToExecute)) as Prisma.InputJsonValue,
       confidenceScore: decision.confidenceScore,
       policyCheckPassed: policyCheck.allowed,
       policyCheckDetails: policyCheck.allowed

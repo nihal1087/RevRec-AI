@@ -20,7 +20,7 @@ const router = Router();
  */
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const stage = req.query["stage"] as RecoveryStage | undefined;
+    const stageParam = req.query["stage"] as string | undefined;
     const customerId = req.query["customerId"] as string | undefined;
     const rawLimit = parseInt((req.query["limit"] as string) ?? "50", 10);
     const rawPage = parseInt((req.query["page"] as string) ?? "1", 10);
@@ -28,8 +28,26 @@ router.get("/", async (req: Request, res: Response) => {
     const page = Math.max(1, Number.isNaN(rawPage) ? 1 : rawPage);
     const skip = (page - 1) * limit;
 
+    // "IN_FLIGHT" is a frontend pseudo-filter that maps to all actively-running stages.
+    // A single stage enum value like "ACTIVE" does not exist in RecoveryStage, so we
+    // translate it into a Prisma `in` filter across the 5 non-terminal active stages.
+    const IN_FLIGHT_STAGES: RecoveryStage[] = [
+      RecoveryStage.PENDING,
+      RecoveryStage.ANALYZING,
+      RecoveryStage.RETRYING,
+      RecoveryStage.OUTREACH_SENT,
+      RecoveryStage.PROMISE_RECEIVED,
+    ];
+
+    const stageFilter =
+      stageParam === "IN_FLIGHT"
+        ? { stage: { in: IN_FLIGHT_STAGES } }
+        : stageParam
+        ? { stage: stageParam as RecoveryStage }
+        : {};
+
     const where = {
-      ...(stage ? { stage } : {}),
+      ...stageFilter,
       ...(customerId ? { customerId } : {}),
     };
 

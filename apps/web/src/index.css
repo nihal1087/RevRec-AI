@@ -473,4 +473,10 @@
       transform: translateY(0) scale(1);
     }
   }
+
+  /* Referenced in: SkeletonLoader.tsx — shimmer loading placeholder animation */
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
 }

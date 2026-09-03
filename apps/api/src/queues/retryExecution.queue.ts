@@ -7,6 +7,7 @@
 
 import { Queue } from "bullmq";
 import { getBullMQRedisClient } from "../config/redis";
+import { logger } from "../config/logger";
 
 export interface RetryExecutionJobData {
   readonly workflowId: string;
@@ -34,5 +35,5 @@ export const retryExecutionQueue = new Queue<RetryExecutionJobData>(
 );
 
 retryExecutionQueue.on("error", (err: Error) => {
-  console.error("[Queue:retry-execution] ❌ Error:", err.message);
+  logger.error("[Queue:retry-execution] ❌ Error:", err.message);
 });

@@ -97,5 +97,32 @@ describe("Checkout Routes (/api/checkout)", () => {
       expect(res.body.rca_hint.category).toBe("HARD");
       expect(res.body.rca_hint.isRetryable).toBe(false);
     });
+
+    it("should automatically create a dunning contact in communications hub for failed payment", async () => {
+      const paymentId = `pay_comm_test_${Date.now()}`;
+      const res = await request(app)
+        .post("/api/checkout/simulate-failure")
+        .send({
+          paymentId,
+          amountInPaise: 199900,
+          errorCode: "OTP_TIMEOUT",
+          errorDescription: "Customer dropped off at OTP screen",
+          customerName: "Rohan Varma",
+          customerEmail: "rohan@varma.in",
+          customerPhone: "+919876500001",
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.workflowId).toBeDefined();
+
+      // Verify communication entry was created in database
+      const commRes = await request(app).get("/api/communications?search=Rohan");
+      expect(commRes.status).toBe(200);
+      expect(commRes.body.data.length).toBeGreaterThanOrEqual(1);
+      const outreach = commRes.body.data.find((d: any) => d.customer.name.includes("Rohan"));
+      expect(outreach).toBeDefined();
+      expect(outreach.channel).toBe("WHATSAPP");
+      expect(outreach.templateName).toContain("intent_drop_recovery_v1");
+    });
   });
 });

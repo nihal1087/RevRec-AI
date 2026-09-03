@@ -34,6 +34,7 @@
 
 import { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
+import { logger } from "../config/logger";
 
 // Header name used by Razorpay to send the signature
 const RAZORPAY_SIGNATURE_HEADER = "x-razorpay-signature";
@@ -66,7 +67,7 @@ export function validateWebhookSignature(
   // ── Step 2: Ensure we have the raw body as a Buffer ───────────────────────
   // This ONLY works if this route was mounted with express.raw() middleware.
   if (!Buffer.isBuffer(req.body)) {
-    console.error(
+    logger.error(
       "[Webhook] FATAL: req.body is not a Buffer. " +
         "Is this route using express.raw() instead of express.json()?"
     );
@@ -80,7 +81,7 @@ export function validateWebhookSignature(
   const webhookSecret = process.env["WEBHOOK_SECRET"];
   if (!webhookSecret) {
     // This should have been caught at startup, but guard defensively
-    console.error("[Webhook] FATAL: WEBHOOK_SECRET environment variable is not set");
+    logger.error("[Webhook] FATAL: WEBHOOK_SECRET environment variable is not set");
     res.status(500).json({ error: "Internal server configuration error" });
     return;
   }
@@ -108,7 +109,7 @@ export function validateWebhookSignature(
   }
 
   if (!signaturesMatch) {
-    console.warn(
+    logger.warn(
       "[Webhook] ⚠️  Signature mismatch — rejected forged/tampered webhook"
     );
     res.status(401).json({

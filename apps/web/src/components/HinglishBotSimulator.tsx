@@ -5,12 +5,12 @@ import { PillBadge } from "./PillBadge";
 
 interface HinglishBotSimulatorProps {
   isOpen: boolean;
-  isMinimized?: boolean;
-  onMinimizeChange?: (minimized: boolean) => void;
+  isMinimized?: boolean | undefined;
+  onMinimizeChange?: ((minimized: boolean) => void) | undefined;
   onClose: () => void;
-  initialCustomerId: string;
-  initialWorkflowId?: string;
-  onRefresh?: () => void;
+  initialCustomerId?: string | undefined;
+  initialWorkflowId?: string | undefined;
+  onRefresh?: (() => void) | undefined;
 }
 
 interface ChatMessage {
@@ -22,13 +22,21 @@ interface ChatMessage {
   actionTaken?: string;
 }
 
-const PRESET_PROMPTS = [
+const CONTEXT_PROMPTS = [
   "Mera payment fail kyun hua?",
   "Main abhi pay kar sakta hoon",
   "Kal tak payment kar dunga",
   "Mujhe kuch din aur chahiye",
-  "Partial payment possible hai?",
+  "Discount milega kya?",
   "Why was my payment declined?",
+];
+
+const LOOKUP_PROMPTS = [
+  "+918789600276",
+  "nihalonly772@gmail.com",
+  "+919988776655",
+  "tanishka@techcorp.in",
+  "pay_seed_cust_in_102_2",
 ];
 
 const WIDGET_WIDTH = 390;
@@ -44,11 +52,24 @@ export function HinglishBotSimulator({
   initialWorkflowId,
   onRefresh,
 }: HinglishBotSimulatorProps): React.JSX.Element | null {
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  const [activeCustomerId, setActiveCustomerId] = useState<string | undefined>(initialCustomerId);
+  const [activeWorkflowId, setActiveWorkflowId] = useState<string | undefined>(initialWorkflowId);
+  const [activeCustomerName, setActiveCustomerName] = useState<string | undefined>(undefined);
+
+  const isLookupMode = !activeWorkflowId && !activeCustomerId;
+
+  const getInitialWelcomeMessage = (customerId?: string, workflowId?: string): string => {
+    if (workflowId || customerId) {
+      return "Namaste! Main RevRec ka AI assistant hoon. Aapke payment ke baare mein kaise help kar sakta hoon? (Hello! How can I assist you with this transaction?)";
+    }
+    return "Namaste! Main RevRec ka AI Recovery Assistant hoon. Aapka failed payment ya transaction check karne ke liye, kripya apna registered Phone Number, Email ID ya Payment ID share karein.";
+  };
+
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
       id: "welcome",
       role: "bot",
-      text: "Namaste! Main RevRec ka AI assistant hoon. Aapke payment ke baare mein kaise help kar sakta hoon? (Hello! I am RevRec's AI assistant. How can I help you with your payment?)",
+      text: getInitialWelcomeMessage(initialCustomerId, initialWorkflowId),
       timestamp: new Date(),
     },
   ]);
@@ -67,8 +88,22 @@ export function HinglishBotSimulator({
     onMinimizeChange?.(val);
   };
 
-  const customerId = initialCustomerId;
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Sync props when new customer/workflow is passed into open bot
+  useEffect(() => {
+    setActiveCustomerId(initialCustomerId);
+    setActiveWorkflowId(initialWorkflowId);
+    setActiveCustomerName(undefined);
+    setMessages([
+      {
+        id: `welcome-${initialWorkflowId || initialCustomerId || "lookup"}`,
+        role: "bot",
+        text: getInitialWelcomeMessage(initialCustomerId, initialWorkflowId),
+        timestamp: new Date(),
+      },
+    ]);
+  }, [initialCustomerId, initialWorkflowId]);
 
   // Keep clamped to viewport on window resize
   useEffect(() => {
@@ -156,19 +191,6 @@ export function HinglishBotSimulator({
   };
 
   useEffect(() => {
-    if (initialCustomerId) {
-      setMessages([
-        {
-          id: `welcome-${initialCustomerId}`,
-          role: "bot",
-          text: `Namaste! Main RevRec ka AI assistant hoon. Aapke payment recovery ke baare mein kaise help kar sakta hoon? (Hello! How can I assist you with this transaction?)`,
-          timestamp: new Date(),
-        },
-      ]);
-    }
-  }, [initialCustomerId, initialWorkflowId]);
-
-  useEffect(() => {
     if (!isMinimized) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
@@ -199,7 +221,7 @@ export function HinglishBotSimulator({
     setIsTyping(true);
 
     try {
-      const response = await sendChatMessage(customerId, text.trim(), initialWorkflowId);
+      const response = await sendChatMessage(activeCustomerId, text.trim(), activeWorkflowId);
       const botMsg: ChatMessage = {
         id: `bot-${Date.now()}`,
         role: "bot",
@@ -210,8 +232,19 @@ export function HinglishBotSimulator({
       };
       setMessages((prev) => [...prev, botMsg]);
 
+      // If a workflow was identified via lookup mode, dynamically bind session
+      if (response.workflowId) {
+        setActiveWorkflowId(response.workflowId);
+      }
+      if (response.customerId) {
+        setActiveCustomerId(response.customerId);
+      }
+      if (response.customerName) {
+        setActiveCustomerName(response.customerName);
+      }
+
       // If financial lifecycle action was taken (PTP created, Halted, Disputed), refresh parent dashboard
-      if (response.actionTaken && response.actionTaken !== "REPLY_SENT") {
+      if (response.actionTaken && response.actionTaken !== "REPLY_SENT" && response.actionTaken !== "AWAITING_IDENTIFIER") {
         onRefresh?.();
       }
     } catch {
@@ -374,7 +407,7 @@ export function HinglishBotSimulator({
           <div style={{ minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-strong)", lineHeight: 1.2 }}>
-                RevRec Bot
+                {isLookupMode ? "RevRec Assistant" : "RevRec Bot"}
               </span>
               <PillBadge variant="green" size="sm" dot={true} style={{ fontSize: 9.5, padding: "1px 6px" }}>
                 LIVE
@@ -392,13 +425,13 @@ export function HinglishBotSimulator({
                 maxWidth: 180,
               }}
             >
-              {initialCustomerId ? (
+              {activeCustomerId || activeCustomerName ? (
                 <>
                   <span style={{ fontWeight: 500 }}>Customer:</span>{" "}
-                  <code style={{ fontFamily: "monospace", fontSize: 10 }}>{initialCustomerId}</code>
+                  <code style={{ fontFamily: "monospace", fontSize: 10 }}>{activeCustomerName || activeCustomerId}</code>
                 </>
               ) : (
-                "Hinglish Recovery Assistant"
+                "Identity Lookup Mode"
               )}
             </div>
           </div>
@@ -487,7 +520,7 @@ export function HinglishBotSimulator({
       </div>
 
       {/* ── Linked Workflow Sub-header Strip ─────────────────────── */}
-      {initialWorkflowId && (
+      {activeWorkflowId && (
         <div
           style={{
             padding: "5px 16px",
@@ -503,7 +536,7 @@ export function HinglishBotSimulator({
         >
           <span>Linked Workflow:</span>
           <code style={{ fontFamily: "monospace", color: "var(--text-body)", fontWeight: 600 }}>
-            {initialWorkflowId.slice(0, 18)}…
+            {activeWorkflowId.slice(0, 18)}…
           </code>
         </div>
       )}
@@ -559,7 +592,7 @@ export function HinglishBotSimulator({
                     {msg.intent}
                   </PillBadge>
                 )}
-                {msg.actionTaken && msg.actionTaken !== "none" && msg.actionTaken !== "REPLY_SENT" && (
+                {msg.actionTaken && msg.actionTaken !== "none" && msg.actionTaken !== "REPLY_SENT" && msg.actionTaken !== "AWAITING_IDENTIFIER" && (
                   <PillBadge variant="teal" size="sm" dot={true} style={{ fontSize: 10, padding: "2px 7px" }}>
                     {msg.actionTaken}
                   </PillBadge>
@@ -629,7 +662,7 @@ export function HinglishBotSimulator({
           scrollbarWidth: "none",
         }}
       >
-        {PRESET_PROMPTS.map((prompt) => (
+        {(isLookupMode ? LOOKUP_PROMPTS : CONTEXT_PROMPTS).map((prompt) => (
           <button
             key={prompt}
             onClick={() => handleSendMessage(prompt)}
@@ -667,7 +700,7 @@ export function HinglishBotSimulator({
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type in Hindi or English…"
+          placeholder={isLookupMode ? "Enter phone (+91...), email, or payment ID…" : "Type in Hindi or English…"}
           disabled={isTyping}
           style={{
             flex: 1,

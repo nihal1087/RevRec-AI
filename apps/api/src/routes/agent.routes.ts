@@ -12,11 +12,28 @@ import { runAgentDecision } from "../services/agent/agent.service";
 import { processCustomerMessage } from "../services/agent/hinglishBot.service";
 import { prisma } from "@revrec/db";
 import { logger } from "../config/logger";
+import { rateLimiter } from "../middleware/rateLimiter";
 
 const router = Router();
 
+// Rate limiters: protect expensive AI inference from abuse
+const decideRateLimiter = rateLimiter({
+  windowSeconds: 60,
+  maxRequests: 60,
+  prefix: "agent-decide",
+  message: "Too many agent decision requests. Please wait before triggering more evaluations.",
+});
+
+const botChatRateLimiter = rateLimiter({
+  windowSeconds: 60,
+  maxRequests: 30,
+  prefix: "bot-chat",
+  message: "Too many chat messages sent in a short period. Please wait a minute before replying again.",
+  keyGenerator: (req: Request) => req.body?.customerId || req.ip || "anon",
+});
+
 const ChatRequestSchema = z.object({
-  customerId: z.string().min(1),
+  customerId: z.string().optional(),
   workflowId: z.string().optional(),
   userMessage: z.string().min(1),
   channel: z.enum(["WHATSAPP", "SMS", "EMAIL", "HINGLISH_VOICE"]).optional(),
@@ -26,7 +43,7 @@ const ChatRequestSchema = z.object({
  * POST /api/agent/decide/:workflowId
  * Triggers the full autonomous bounded agent evaluation loop on a workflow.
  */
-router.post("/decide/:workflowId", async (req: Request, res: Response) => {
+router.post("/decide/:workflowId", decideRateLimiter, async (req: Request, res: Response) => {
   try {
     const { workflowId } = req.params;
     if (!workflowId) {
@@ -61,7 +78,7 @@ router.post("/decide/:workflowId", async (req: Request, res: Response) => {
  * POST /api/agent/bot/chat
  * Multi-turn conversational endpoint for customer WhatsApp / SMS responses in Hinglish.
  */
-router.post("/bot/chat", async (req: Request, res: Response) => {
+router.post("/bot/chat", botChatRateLimiter, async (req: Request, res: Response) => {
   try {
     const parseResult = ChatRequestSchema.safeParse(req.body);
     if (!parseResult.success) {
@@ -77,7 +94,7 @@ router.post("/bot/chat", async (req: Request, res: Response) => {
       customerId,
       userMessage,
       ...(workflowId ? { workflowId } : {}),
-      ...(channel ? { channel: channel as unknown as DunningChannel } : {}),
+      ...(channel ? { channel: channel as DunningChannel } : {}),
     });
 
     res.json({

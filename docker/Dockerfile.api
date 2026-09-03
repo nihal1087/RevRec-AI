@@ -50,5 +50,9 @@ COPY --from=builder /app/apps/api ./apps/api
 
 EXPOSE 3001
 
-CMD ["node", "apps/api/dist/apps/api/src/index.js"]
+# Health check: polls /health every 30s, allows 60s startup grace period
+# Fails after 3 consecutive failures (container marked unhealthy by Docker)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD wget -qO- http://localhost:3001/health || exit 1
 
+CMD ["node", "apps/api/dist/apps/api/src/index.js"]

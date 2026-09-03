@@ -12,7 +12,7 @@
 import { z } from "zod";
 import { HinglishIntent, DunningChannel, RecoveryStage, PromiseStatus } from "@revrec/types";
 import { prisma, AuditEventType, Prisma } from "@revrec/db";
-import { callGeminiStructured } from "./llmClient";
+import { callGroqStructured } from "./llmClient";
 import { logger } from "../../config/logger";
 
 export const HinglishBotResponseSchema = z.preprocess(
@@ -45,7 +45,7 @@ export const HinglishBotResponseSchema = z.preprocess(
 export type HinglishBotAnalysis = z.infer<typeof HinglishBotResponseSchema>;
 
 export interface ChatTurnInput {
-  readonly customerId: string;
+  readonly customerId?: string | undefined;
   readonly workflowId?: string | undefined;
   readonly userMessage: string;
   readonly channel?: DunningChannel | undefined;
@@ -56,6 +56,9 @@ export interface ChatTurnOutput {
   readonly intent: HinglishIntent;
   readonly sentiment: "POSITIVE" | "NEUTRAL" | "ANGRY" | "DISTRESSED";
   readonly actionTaken: string;
+  readonly workflowId?: string | undefined;
+  readonly customerId?: string | undefined;
+  readonly customerName?: string | undefined;
   readonly promiseToPayId?: string | undefined;
   readonly paymentUrl?: string | undefined;
 }
@@ -77,6 +80,24 @@ TONE & STYLE:
 - Address customer by name if known. Be helpful and never robotic.
 - Always return valid JSON conforming to the requested schema.
 `;
+
+/**
+ * Extracts phone, email, or payment/workflow identifier from free-form user message.
+ */
+function extractCustomerIdentifier(text: string): { email?: string; phone?: string; id?: string } | null {
+  const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  const phoneMatch = text.match(/(?:\+?91[\-\s]?)?([6-9]\d{9})/);
+  const idMatch = text.match(/\b(pay_[a-zA-Z0-9_]+|wf_[a-zA-Z0-9_]+|cust_[a-zA-Z0-9_]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b/i);
+
+  if (emailMatch || phoneMatch || idMatch) {
+    return {
+      ...(emailMatch ? { email: emailMatch[0].toLowerCase() } : {}),
+      ...(phoneMatch ? { phone: phoneMatch[1] } : {}),
+      ...(idMatch ? { id: idMatch[1] } : {}),
+    };
+  }
+  return null;
+}
 
 /**
  * Parses user colloquial expressions and converts relative dates ("5th", "kal", "next Monday") to ISO strings.
@@ -120,7 +141,7 @@ function parseRelativeDate(text: string): string | undefined {
 export async function processCustomerMessage(input: ChatTurnInput): Promise<ChatTurnOutput> {
   const { customerId, workflowId, userMessage, channel = DunningChannel.WHATSAPP } = input;
 
-  logger.info(`[HinglishBot] Processing message from customer ${customerId} on ${channel}: "${userMessage}"`);
+  logger.info(`[HinglishBot] Processing message from customer ${customerId ?? "anonymous"} on ${channel}: "${userMessage}"`);
 
   // 1. Fetch relevant workflow and customer context
   let workflow = null;
@@ -137,7 +158,7 @@ export async function processCustomerMessage(input: ChatTurnInput): Promise<Chat
     });
   }
 
-  if (!workflow && customerId) {
+  if (!workflow && customerId && customerId !== "anonymous") {
     workflow = await prisma.recoveryWorkflow.findFirst({
       where: {
         OR: [
@@ -154,7 +175,7 @@ export async function processCustomerMessage(input: ChatTurnInput): Promise<Chat
   }
 
   // Fallback: If still no active workflow, try any latest workflow for this customer
-  if (!workflow && customerId) {
+  if (!workflow && customerId && customerId !== "anonymous") {
     workflow = await prisma.recoveryWorkflow.findFirst({
       where: {
         OR: [
@@ -169,19 +190,115 @@ export async function processCustomerMessage(input: ChatTurnInput): Promise<Chat
     });
   }
 
-  // Fallback: If still no workflow in DB, grab latest available workflow
+  // ── LOOKUP MODE: If opened without context, search for identifiers in the user message ──
   if (!workflow) {
-    workflow = await prisma.recoveryWorkflow.findFirst({
-      orderBy: { createdAt: "desc" },
-      include: { customer: true, payment: true },
-    });
+    const extracted = extractCustomerIdentifier(userMessage) || (customerId ? extractCustomerIdentifier(customerId) : null);
+    if (extracted) {
+      const orFilters: Prisma.RecoveryWorkflowWhereInput[] = [];
+      if (extracted.id) {
+        orFilters.push(
+          { id: extracted.id },
+          { paymentId: extracted.id },
+          { payment: { externalId: extracted.id } },
+          { customerId: extracted.id },
+          { customer: { externalId: extracted.id } }
+        );
+      }
+      if (extracted.phone) {
+        orFilters.push({ customer: { phone: { contains: extracted.phone } } });
+      }
+      if (extracted.email) {
+        orFilters.push({ customer: { email: { equals: extracted.email, mode: "insensitive" } } });
+      }
+
+      if (orFilters.length > 0) {
+        workflow = await prisma.recoveryWorkflow.findFirst({
+          where: { OR: orFilters },
+          orderBy: { createdAt: "desc" },
+          include: { customer: true, payment: true },
+        });
+      }
+
+      // If matching workflow found during lookup:
+      if (workflow) {
+        const amountRs = (Number(workflow.amountAtRiskInPaise) / 100).toLocaleString("en-IN");
+        const failureReason = workflow.payment?.gatewayErrorCode ?? "PAYMENT_FAILED";
+        const customerName = workflow.customer.name;
+        const paymentId = workflow.payment?.externalId ?? workflow.id;
+
+        return {
+          replyText: `Dhanyawad ${customerName} ji! Hume aapka transaction mil gaya hai:\n\n• Amount: ₹${amountRs}\n• Payment ID: ${paymentId}\n• Status: Failed (${failureReason})\n\nAap is payment ke baare mein kya janna chahte hain? (Aap failure reason pooch sakte hain, instant payment link maang sakte hain, ya future payment date commit kar sakte hain).`,
+          intent: HinglishIntent.NEEDS_CLARIFICATION,
+          sentiment: "POSITIVE",
+          actionTaken: "WORKFLOW_IDENTIFIED",
+          workflowId: workflow.id,
+          customerId: workflow.customerId,
+          customerName: workflow.customer.name,
+        };
+      } else {
+        // Identifier provided but not found in database:
+        return {
+          replyText: `Hume "${userMessage.trim()}" par koi active pending ya failed transaction nahi mila. Kripya apna registered 10-digit mobile number, email address ya Payment ID check karke dubara enter karein.`,
+          intent: HinglishIntent.NEEDS_CLARIFICATION,
+          sentiment: "NEUTRAL",
+          actionTaken: "LOOKUP_NOT_FOUND",
+        };
+      }
+    } else {
+      // Check if message contains a recognizable customer name in DB (e.g. "Nihal", "Priya", "Tanishka")
+      const words = userMessage.trim().split(/\s+/).filter((w) => w.length >= 3);
+      let nameMatchedWorkflow = null;
+      if (words.length > 0) {
+        const matchedCustomer = await prisma.customer.findFirst({
+          where: {
+            OR: words.map((w) => ({ name: { contains: w, mode: "insensitive" } })),
+          },
+          include: {
+            recoveryWorkflows: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              include: { customer: true, payment: true },
+            },
+          },
+        });
+        if (matchedCustomer && matchedCustomer.recoveryWorkflows.length > 0) {
+          nameMatchedWorkflow = matchedCustomer.recoveryWorkflows[0];
+        }
+      }
+
+      if (nameMatchedWorkflow) {
+        workflow = nameMatchedWorkflow;
+        const amountRs = (Number(workflow.amountAtRiskInPaise) / 100).toLocaleString("en-IN");
+        const failureReason = workflow.payment?.gatewayErrorCode ?? "PAYMENT_FAILED";
+        const customerName = workflow.customer.name;
+        const paymentId = workflow.payment?.externalId ?? workflow.id;
+
+        return {
+          replyText: `Namaste ${customerName} ji! Hume aapka ₹${amountRs} ka transaction mil gaya (ID: ${paymentId}), jo ${failureReason} ki wajah se decline hua tha. Aap is payment ke baare mein kya discuss karna chahte hain?`,
+          intent: HinglishIntent.NEEDS_CLARIFICATION,
+          sentiment: "POSITIVE",
+          actionTaken: "WORKFLOW_IDENTIFIED",
+          workflowId: workflow.id,
+          customerId: workflow.customerId,
+          customerName: workflow.customer.name,
+        };
+      }
+
+      // General question without any identifier in lookup mode:
+      return {
+        replyText: `Ji zaroor, main aapka failed transaction find karta hoon! Kripya apna registered Mobile Number (jaise: +91 8789600276), Email ID ya Payment ID share karein.`,
+        intent: HinglishIntent.NEEDS_CLARIFICATION,
+        sentiment: "NEUTRAL",
+        actionTaken: "AWAITING_IDENTIFIER",
+      };
+    }
   }
 
-  // Cast BigInt → number: amountAtRiskInPaise is BigInt from Prisma; arithmetic requires Number
-  const amountAtRiskPaise = Number(workflow?.amountAtRiskInPaise ?? 99900n);
-  const customerName = workflow?.customer.name ?? "Customer";
-  const gatewayError = workflow?.payment?.gatewayErrorCode ?? "INSUFFICIENT_FUNDS";
-  const declineCategory = workflow?.payment?.declineCategory ?? "SOFT";
+  // ── CONTEXTUAL MODE: Workflow is loaded (from Ledger entry or successful lookup) ──
+  const amountAtRiskPaise = Number(workflow.amountAtRiskInPaise);
+  const customerName = workflow.customer.name ?? "Customer";
+  const gatewayError = workflow.payment?.gatewayErrorCode ?? "INSUFFICIENT_FUNDS";
+  const declineCategory = workflow.payment?.declineCategory ?? "SOFT";
 
   const userPrompt = `
 CUSTOMER INCOMING MESSAGE:
@@ -196,8 +313,8 @@ CONTEXT:
 Analyze this message, identify intent and sentiment, extract any dates or discount requests, and provide an empathetic, helpful Hinglish reply. If the user asks why the payment failed, explain the failure reason politely and suggest clear next steps.
 `;
 
-  // 2. LLM Intent & Entity Extraction
-  const llmResult = await callGeminiStructured(userPrompt, HINGLISH_SYSTEM_PROMPT);
+  // 2. LLM Intent & Entity Extraction via Groq LPU
+  const llmResult = await callGroqStructured(userPrompt, HINGLISH_SYSTEM_PROMPT);
   const parseResult = HinglishBotResponseSchema.safeParse(llmResult.structuredJson);
 
   let analysis: HinglishBotAnalysis;

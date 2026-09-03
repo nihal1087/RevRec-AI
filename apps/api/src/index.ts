@@ -15,6 +15,9 @@
 
 import "dotenv/config"; // Must be absolute first — loads .env before any env var reads
 import express, { Request, Response, NextFunction } from "express";
+import { createBullBoard } from "@bull-board/api";
+import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
+import { ExpressAdapter } from "@bull-board/express";
 import { webhookRouter } from "./routes/webhook.routes";
 import { recoveryRouter } from "./routes/recovery.routes";
 import { agentRouter } from "./routes/agent.routes";
@@ -27,6 +30,10 @@ import { startRetryExecutionWorker } from "./workers/retryExecution.worker";
 import { closeAllRedisConnections, getRedisClient } from "./config/redis";
 import { logger } from "./config/logger";
 import { prisma } from "@revrec/db";
+import { requireApiKey } from "./middleware/requireApiKey";
+import { correlationIdMiddleware } from "./middleware/correlationId";
+import { paymentEventsQueue } from "./queues/paymentEvents.queue";
+import { retryExecutionQueue } from "./queues/retryExecution.queue";
 
 // ── Environment Validation ────────────────────────────────────────────────────
 if (!process.env["DATABASE_URL"]) {
@@ -44,11 +51,35 @@ if (!process.env["WEBHOOK_SECRET"]) {
 
 const app = express();
 
+// ── Bull Board — Queue Monitoring UI ─────────────────────────────────────────
+// Available at /admin/queues (protected by requireApiKey — only accessible with
+// a valid DASHBOARD_API_KEY header). Never expose this without auth in production.
+const bullBoardAdapter = new ExpressAdapter();
+bullBoardAdapter.setBasePath("/admin/queues");
+createBullBoard({
+  queues: [
+    new BullMQAdapter(paymentEventsQueue),
+    new BullMQAdapter(retryExecutionQueue),
+  ],
+  serverAdapter: bullBoardAdapter,
+});
+
 // ── Global CORS Middleware ───────────────────────────────────────────────────
 app.use((req: Request, res: Response, next: NextFunction) => {
-  res.header("Access-Control-Allow-Origin", "*");
+  const allowedOrigin = process.env["CORS_ALLOWED_ORIGIN"] || (process.env["NODE_ENV"] === "production" ? "" : "*");
+  const origin = req.headers.origin;
+
+  if (allowedOrigin === "*") {
+    res.header("Access-Control-Allow-Origin", "*");
+  } else if (allowedOrigin && origin && (allowedOrigin === origin || allowedOrigin.split(",").map((o) => o.trim()).includes(origin))) {
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Access-Control-Allow-Credentials", "true");
+  } else if (!allowedOrigin && process.env["NODE_ENV"] !== "production") {
+    res.header("Access-Control-Allow-Origin", "*");
+  }
+
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Razorpay-Signature");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Razorpay-Signature, X-API-Key");
   if (req.method === "OPTIONS") {
     res.sendStatus(200);
     return;
@@ -71,6 +102,8 @@ app.use(
 // This runs AFTER the webhook route, so webhooks are unaffected.
 app.use(express.json({ limit: "10kb" }));
 
+// ── STEP 2b: Correlation ID — thread traceId through every request ────────────
+app.use(correlationIdMiddleware);
 
 // BigInt JSON Serializer — Prisma returns BigInt for monetary paise fields.
 // JSON.stringify(42n) throws TypeError by default. This replacer converts
@@ -116,12 +149,16 @@ app.get("/health", async (_req: Request, res: Response) => {
 });
 
 // ── STEP 4: Application Routes ────────────────────────────────────────────────
-app.use("/api/recovery", recoveryRouter);
-app.use("/api/agent", agentRouter);
-app.use("/api/analytics", analyticsRouter);
-app.use("/api/simulate", simulationRouter);
-app.use("/api/checkout", checkoutRouter);
-app.use("/api/communications", communicationsRouter);
+// requireApiKey is applied to all dashboard routes.
+// /api/webhooks is excluded — it uses HMAC signature verification instead.
+// /health is excluded — load balancers and uptime monitors need unauthenticated access.
+app.use("/admin/queues", requireApiKey, bullBoardAdapter.getRouter());
+app.use("/api/recovery", requireApiKey, recoveryRouter);
+app.use("/api/agent", requireApiKey, agentRouter);
+app.use("/api/analytics", requireApiKey, analyticsRouter);
+app.use("/api/simulate", requireApiKey, simulationRouter);
+app.use("/api/checkout", requireApiKey, checkoutRouter);
+app.use("/api/communications", requireApiKey, communicationsRouter);
 
 // ── 404 Handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

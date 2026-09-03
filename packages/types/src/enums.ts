@@ -157,3 +157,19 @@ export enum RiskTier {
   HIGH = "HIGH",     // Low recovery probability (20-50%) / Default risk
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AGENT EXECUTION STATUS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Execution status of a bounded AI agent decision.
+ * Mirrors the Prisma `AgentExecutionStatus` enum added to schema.prisma.
+ * Using this in application code avoids depending directly on the generated
+ * Prisma client enum (which is only available after `prisma generate`).
+ */
+export enum AgentExecutionStatus {
+  EXECUTED = "EXECUTED",
+  REJECTED_BY_POLICY = "REJECTED_BY_POLICY",
+  EXECUTION_FAILED = "EXECUTION_FAILED",
+  SKIPPED_TERMINAL_STAGE = "SKIPPED_TERMINAL_STAGE",
+}

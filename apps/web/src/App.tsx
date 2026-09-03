@@ -91,7 +91,7 @@ export function App(): React.JSX.Element {
   const [caseDetailWorkflow, setCaseDetailWorkflow] = useState<WorkflowItem | null>(null);
   const [isBotOpen, setIsBotOpen] = useState(false);
   const [isBotMinimized, setIsBotMinimized] = useState(false);
-  const [botCustomerId, setBotCustomerId] = useState("cust_demo_101");
+  const [botCustomerId, setBotCustomerId] = useState<string | undefined>(undefined);
   const [botWorkflowId, setBotWorkflowId] = useState<string | undefined>(undefined);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   // M16: isLoading = manual refresh (shows full spinner in header button)
@@ -260,14 +260,14 @@ export function App(): React.JSX.Element {
     }
   };
 
-  const handleOpenBot = (customerId: string = "cust_demo_101", workflowId?: string) => {
-    // If bot is already open and expanded for this customer, clicking the action button toggles / minimizes it
+  const handleOpenBot = (customerId?: string, workflowId?: string) => {
+    // If bot is already open and expanded for this context, clicking the action button toggles / minimizes it
     if (isBotOpen && !isBotMinimized && botCustomerId === customerId && botWorkflowId === workflowId) {
       setIsBotMinimized(true);
       return;
     }
 
-    // Otherwise, open/expand bot with the target customer context
+    // Otherwise, open/expand bot with the target customer context (or undefined for lookup mode)
     setBotCustomerId(customerId);
     setBotWorkflowId(workflowId);
     setIsBotOpen(true);
@@ -447,7 +447,7 @@ export function App(): React.JSX.Element {
                     setSelectedStage("");
                   } else {
                     setActiveKpiTile("in_flight");
-                    setSelectedStage("ACTIVE");
+                    setSelectedStage("IN_FLIGHT");
                     document.getElementById("workflow-ledger-section")?.scrollIntoView({ behavior: "smooth" });
                   }
                 }}

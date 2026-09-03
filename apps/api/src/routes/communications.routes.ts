@@ -7,6 +7,8 @@
 
 import { Router, Request, Response } from "express";
 import { prisma } from "@revrec/db";
+import { DeclineCategory } from "@revrec/types";
+import { recordAutomaticFailureOutreach } from "../services/outreach.service";
 import { logger } from "../config/logger";
 
 const router = Router();
@@ -17,11 +19,66 @@ const router = Router();
  */
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const channel = req.query["channel"] as string | undefined;
-    const search = (req.query["search"] as string | undefined)?.toLowerCase();
+    const channelParam = req.query["channel"] as string | undefined;
+    const search = req.query["search"] as string | undefined;
 
-    // Query directly from PostgreSQL database (100% single source of truth)
+    // Build database WHERE clause
+    const channelFilter =
+      channelParam && channelParam !== "ALL"
+        ? { channel: channelParam.toUpperCase() as any }
+        : {};
+
+    const searchFilter = search
+      ? {
+          OR: [
+            { customer: { name: { contains: search, mode: "insensitive" as const } } },
+            { customer: { email: { contains: search, mode: "insensitive" as const } } },
+            { customer: { phone: { contains: search } } },
+            { messageTemplate: { contains: search, mode: "insensitive" as const } },
+          ],
+        }
+      : {};
+
+    const where = {
+      ...channelFilter,
+      ...searchFilter,
+    };
+
+    // Self-healing synchronization: ensure any active workflows lacking a dunningContact
+    // have their initial failure communication recorded so they appear in Communications Hub
+    try {
+      const unsyncedWorkflows = await prisma.recoveryWorkflow.findMany({
+        where: {
+          dunningContacts: { none: {} },
+        },
+        take: 15,
+        include: {
+          customer: true,
+          payment: true,
+        },
+      });
+
+      for (const wf of unsyncedWorkflows) {
+        const rawCat = wf.payment?.declineCategory ?? "SOFT";
+        const category = (DeclineCategory[rawCat as keyof typeof DeclineCategory] ?? DeclineCategory.SOFT) as DeclineCategory;
+        await recordAutomaticFailureOutreach({
+          workflowId: wf.id,
+          paymentId: wf.paymentId,
+          customerId: wf.customerId,
+          customerName: wf.customer?.name,
+          customerPhone: wf.customer?.phone,
+          amountInPaise: wf.amountAtRiskInPaise,
+          category,
+          errorCode: wf.payment?.gatewayErrorCode ?? undefined,
+        });
+      }
+    } catch (syncErr) {
+      logger.warn(`[Communications] Sync check warning: ${(syncErr as Error).message}`);
+    }
+
+    // Query directly from PostgreSQL database with filtering applied at the DB layer
     const dbDispatches = await prisma.dunningContact.findMany({
+      where,
       take: 100,
       orderBy: { sentAt: "desc" },
       include: {
@@ -45,7 +102,6 @@ router.get("/", async (req: Request, res: Response) => {
         templateName = parts[0] || "recovery_template_v1";
         messagePayload = parts.slice(1).join(":::") || templateName;
       } else if (d.messageTemplate.includes(" ") || d.messageTemplate.length > 40) {
-        // Full text stored directly
         templateName = d.channel === "WHATSAPP"
           ? "wa_smart_recovery_v2"
           : d.channel === "SMS"
@@ -55,7 +111,6 @@ router.get("/", async (req: Request, res: Response) => {
           : "hinglish_voice_concierge_v1";
         messagePayload = d.messageTemplate;
       } else {
-        // Short template key stored directly
         templateName = d.messageTemplate;
         messagePayload = `Payment recovery outreach dispatched via ${d.channel} (${d.messageTemplate})`;
       }
@@ -87,55 +142,42 @@ router.get("/", async (req: Request, res: Response) => {
       };
     });
 
-    // Filter by channel and search
-    let filtered = formatted;
-    if (channel && channel !== "ALL") {
-      filtered = filtered.filter((d) => d.channel.toUpperCase() === channel.toUpperCase());
+    // Compute channel counts and metrics in a single O(N) pass for optimal performance
+    const counts = { all: formatted.length, whatsapp: 0, sms: 0, email: 0, hinglish_voice: 0 };
+    let whatsappReadCount = 0;
+    let smsDeliveredCount = 0;
+    let emailClickedCount = 0;
+    let totalRecoveredViaOutreachPaise = 0;
+
+    for (const c of formatted) {
+      if (c.channel === "WHATSAPP") {
+        counts.whatsapp += 1;
+        if (c.status === "READ" || c.status === "CLICKED") whatsappReadCount += 1;
+      } else if (c.channel === "SMS") {
+        counts.sms += 1;
+        if (c.status === "DELIVERED" || c.status === "READ" || c.status === "CLICKED") smsDeliveredCount += 1;
+      } else if (c.channel === "EMAIL") {
+        counts.email += 1;
+        if (c.status === "CLICKED") emailClickedCount += 1;
+      } else if (c.channel === "HINGLISH_VOICE") {
+        counts.hinglish_voice += 1;
+      }
+
+      if (c.workflow?.stage === "RECOVERED") {
+        totalRecoveredViaOutreachPaise += c.workflow.amountAtRiskInPaise ?? 0;
+      }
     }
-    if (search) {
-      filtered = filtered.filter(
-        (d) =>
-          d.customer?.name?.toLowerCase().includes(search) ||
-          d.customer?.email?.toLowerCase().includes(search) ||
-          d.customer?.phone?.includes(search) ||
-          d.messagePayload.toLowerCase().includes(search) ||
-          d.templateName.toLowerCase().includes(search)
-      );
-    }
 
-    // Compute channel counts (single-pass for performance)
-    const counts = {
-      all: formatted.length,
-      whatsapp: formatted.filter((c) => c.channel === "WHATSAPP").length,
-      sms: formatted.filter((c) => c.channel === "SMS").length,
-      email: formatted.filter((c) => c.channel === "EMAIL").length,
-      hinglish_voice: formatted.filter((c) => c.channel === "HINGLISH_VOICE").length,
-    };
-
-    // Compute live channel metrics
-    const totalDispatches = formatted.length;
-    const whatsappCount = formatted.filter((c) => c.channel === "WHATSAPP").length;
-    const whatsappReadCount = formatted.filter((c) => c.channel === "WHATSAPP" && (c.status === "READ" || c.status === "CLICKED")).length;
-    const whatsappReadRatePercent = whatsappCount > 0 ? Math.round((whatsappReadCount / whatsappCount) * 1000) / 10 : null;
-
-    const smsCount = formatted.filter((c) => c.channel === "SMS").length;
-    const smsDeliveredCount = formatted.filter((c) => c.channel === "SMS" && (c.status === "DELIVERED" || c.status === "READ" || c.status === "CLICKED")).length;
-    const smsDeliveryRatePercent = smsCount > 0 ? Math.round((smsDeliveredCount / smsCount) * 1000) / 10 : null;
-
-    const emailCount = formatted.filter((c) => c.channel === "EMAIL").length;
-    const emailClickedCount = formatted.filter((c) => c.channel === "EMAIL" && c.status === "CLICKED").length;
-    const emailClickRatePercent = emailCount > 0 ? Math.round((emailClickedCount / emailCount) * 1000) / 10 : null;
-
-    const totalRecoveredViaOutreachPaise = formatted
-      .filter((c) => c.workflow?.stage === "RECOVERED")
-      .reduce((acc, c) => acc + (c.workflow?.amountAtRiskInPaise ?? 0), 0);
+    const whatsappReadRatePercent = counts.whatsapp > 0 ? Math.round((whatsappReadCount / counts.whatsapp) * 1000) / 10 : null;
+    const smsDeliveryRatePercent = counts.sms > 0 ? Math.round((smsDeliveredCount / counts.sms) * 1000) / 10 : null;
+    const emailClickRatePercent = counts.email > 0 ? Math.round((emailClickedCount / counts.email) * 1000) / 10 : null;
 
     res.json({
       success: true,
-      data: filtered,
+      data: formatted,
       counts,
       metrics: {
-        totalDispatches,
+        totalDispatches: formatted.length,
         whatsappReadRatePercent,
         smsDeliveryRatePercent,
         emailClickRatePercent,

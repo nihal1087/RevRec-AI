@@ -97,7 +97,7 @@ export function CheckoutModal({
           amountInPaise: product.priceInPaise,
           productName: product.name,
           customerName: "Nihal",
-          customerEmail: "nihal@revrec.ai",
+          customerEmail: "nihalonly772@gmail.com",
           customerPhone: "+918789600276",
         }),
       });
@@ -128,7 +128,7 @@ export function CheckoutModal({
         order_id: orderData.order_id as string,
         prefill: {
           name: "Nihal",
-          email: "nihal@revrec.ai",
+          email: "nihalonly772@gmail.com",
           contact: "+918789600276",
         },
         theme: { color: "#0f172a" },
@@ -168,7 +168,7 @@ export function CheckoutModal({
             errorCode: product.errorCode,
             errorDescription: product.errorDescription,
             customerName: "Nihal",
-            customerEmail: "nihal@revrec.ai",
+            customerEmail: "nihalonly772@gmail.com",
             customerPhone: "+918789600276",
           }),
         });

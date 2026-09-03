@@ -1,0 +1,113 @@
+name: RevRec CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  typecheck-and-test:
+    name: TypeCheck & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: revrec
+          POSTGRES_PASSWORD: revrec_dev
+          POSTGRES_DB: revrec_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://revrec:revrec_dev@localhost:5432/revrec_db
+      REDIS_URL: redis://localhost:6379
+      DASHBOARD_API_KEY: ci-test-api-key
+      RAZORPAY_KEY_ID: rzp_test_ci
+      RAZORPAY_KEY_SECRET: ci_secret
+      RAZORPAY_WEBHOOK_SECRET: ci_webhook_secret
+      GROQ_API_KEY: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate --workspace=packages/db
+
+      - name: Run Prisma migrations
+        run: npx prisma migrate deploy
+        working-directory: packages/db
+
+      - name: TypeCheck — packages/types
+        run: npx tsc --project packages/types/tsconfig.json --noEmit
+
+      - name: TypeCheck — packages/db
+        run: npx tsc --project packages/db/tsconfig.json --noEmit
+
+      - name: TypeCheck — apps/api
+        run: npx tsc --project apps/api/tsconfig.json --noEmit
+
+      - name: TypeCheck — apps/web
+        run: npx tsc --project apps/web/tsconfig.json --noEmit
+
+      - name: Run test suite
+        run: npm test
+
+  build-check:
+    name: Production Build Check
+    runs-on: ubuntu-latest
+    needs: typecheck-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build API
+        run: |
+          npm run db:generate --workspace=packages/db
+          npx tsc -p packages/types/tsconfig.json
+          npx tsc -p packages/db/tsconfig.json
+          npx tsc -p apps/api/tsconfig.json
+
+      - name: Build Web
+        run: npm run build --workspace=apps/web
+        env:
+          VITE_API_URL: https://api.revrec.ai
+          VITE_RAZORPAY_KEY_ID: rzp_test_build

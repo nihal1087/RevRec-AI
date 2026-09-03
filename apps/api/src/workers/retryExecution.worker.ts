@@ -8,6 +8,7 @@
 
 import { Worker, Job } from "bullmq";
 import { getBullMQRedisClient } from "../config/redis";
+import { paymentEventsQueue } from "../queues/paymentEvents.queue";
 import { retryExecutionQueue, type RetryExecutionJobData } from "../queues/retryExecution.queue";
 import { calculateNextRetrySchedule } from "../services/retrySequencer.service";
 import {
@@ -282,7 +283,6 @@ async function processRetryJob(job: Job<RetryExecutionJobData>): Promise<void> {
       logger.info(`[RetryWorker] Retries exhausted for workflow ${workflowId}. Escalating to AI Agent for customer outreach.`);
 
       // Dispatch agent decision job outside transaction
-      const { paymentEventsQueue } = await import("../queues/paymentEvents.queue");
       await paymentEventsQueue.add(
         "agent.decide",
         {
