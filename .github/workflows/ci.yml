@@ -42,9 +42,6 @@ jobs:
       REDIS_URL: redis://127.0.0.1:6379
       REDIS_HOST: 127.0.0.1
       REDIS_PORT: 6379
-      DASHBOARD_API_KEY: ci-test-api-key
-      RAZORPAY_KEY_ID: ""
-      RAZORPAY_KEY_SECRET: ""
       WEBHOOK_SECRET: ci_webhook_secret_at_least_32_bytes_long
       GROQ_API_KEY: ""
 
