@@ -45,7 +45,7 @@ jobs:
       DASHBOARD_API_KEY: ci-test-api-key
       RAZORPAY_KEY_ID: ""
       RAZORPAY_KEY_SECRET: ""
-      RAZORPAY_WEBHOOK_SECRET: ci_webhook_secret
+      WEBHOOK_SECRET: ci_webhook_secret_at_least_32_bytes_long
       GROQ_API_KEY: ""
 
     steps:
