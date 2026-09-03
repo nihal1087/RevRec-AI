@@ -7,7 +7,7 @@ build/
 # ─── Environment ─────────────────────────────────────────────────────────────
 .env
 .env.local
-.env.production
+# .env.production is intentionally committed — contains only public API URL, no secrets
 
 # ─── Database ────────────────────────────────────────────────────────────────
 packages/db/generated/
