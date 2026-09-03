@@ -65,17 +65,19 @@ createBullBoard({
 });
 
 // ── Global CORS Middleware ───────────────────────────────────────────────────
+// CORS_ALLOWED_ORIGIN: comma-separated list of allowed origins.
+// If not set, defaults to "*" (open) so demo/pitch deployments work without
+// needing to whitelist every Vercel preview URL. Set explicitly in production
+// if you need to restrict access.
 app.use((req: Request, res: Response, next: NextFunction) => {
-  const allowedOrigin = process.env["CORS_ALLOWED_ORIGIN"] || (process.env["NODE_ENV"] === "production" ? "" : "*");
+  const allowedOrigin = process.env["CORS_ALLOWED_ORIGIN"] || "*";
   const origin = req.headers.origin;
 
   if (allowedOrigin === "*") {
     res.header("Access-Control-Allow-Origin", "*");
-  } else if (allowedOrigin && origin && (allowedOrigin === origin || allowedOrigin.split(",").map((o) => o.trim()).includes(origin))) {
+  } else if (origin && allowedOrigin.split(",").map((o) => o.trim()).includes(origin)) {
     res.header("Access-Control-Allow-Origin", origin);
     res.header("Access-Control-Allow-Credentials", "true");
-  } else if (!allowedOrigin && process.env["NODE_ENV"] !== "production") {
-    res.header("Access-Control-Allow-Origin", "*");
   }
 
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
