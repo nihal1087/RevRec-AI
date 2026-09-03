@@ -74,9 +74,6 @@ jobs:
         run: npx prisma migrate deploy
         working-directory: packages/db
 
-      - name: Seed database for tests
-        run: npm run db:seed --workspace=packages/db
-
       - name: TypeCheck — packages/types
         run: npx tsc --project packages/types/tsconfig.json --noEmit
 
