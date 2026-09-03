@@ -59,8 +59,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build packages/types
+        run: npm run build --workspace=packages/types
+
       - name: Generate Prisma client
         run: npm run db:generate --workspace=packages/db
+
+      - name: Build packages/db
+        run: npm run build --workspace=packages/db
 
       - name: Run Prisma migrations
         run: npx prisma migrate deploy
@@ -79,7 +85,7 @@ jobs:
         run: npx tsc --project apps/web/tsconfig.json --noEmit
 
       - name: Run test suite
-        run: npm test
+        run: npm test --workspaces --if-present -- --forceExit
 
   build-check:
     name: Production Build Check
@@ -99,12 +105,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build API
+      - name: Build API & Packages
         run: |
+          npm run build --workspace=packages/types
           npm run db:generate --workspace=packages/db
-          npx tsc -p packages/types/tsconfig.json
-          npx tsc -p packages/db/tsconfig.json
-          npx tsc -p apps/api/tsconfig.json
+          npm run build --workspace=packages/db
+          npm run build --workspace=apps/api
 
       - name: Build Web
         run: npm run build --workspace=apps/web
